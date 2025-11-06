@@ -1303,6 +1303,8 @@ namespace petutils
             PPet->setModifier(Mod::LIGHT_SLEEP_RES_RANK, petData->light_sleep_res_rank);
             PPet->setModifier(Mod::DARK_SLEEP_RES_RANK, petData->dark_sleep_res_rank);
             PPet->setModifier(Mod::BLIND_RES_RANK, petData->blind_res_rank);
+
+            PPet->savePetModifiers();
         }
     }
 
@@ -1861,6 +1863,12 @@ namespace petutils
         PPet->status        = STATUS_TYPE::NORMAL;
         PPet->m_ModelRadius = PPetData->radius;
         PPet->m_EcoSystem   = PPetData->EcoSystem;
+
+        if (PPet->getPetType() == PET_TYPE::WYVERN || PPet->getPetType() == PET_TYPE::JUG_PET)
+        {
+            battleutils::addEcosystemKillerEffects(PPet);
+        }
+
         // set the damage type of the pet
         static_cast<CItemWeapon*>(PPet->m_Weapons[SLOT_MAIN])->setDmgType(PPetData->m_dmgType);
 

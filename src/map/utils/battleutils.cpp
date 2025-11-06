@@ -31,9 +31,7 @@
 #include <cstring>
 #include <unordered_map>
 
-#include "packets/char_health.h"
 #include "packets/char_status.h"
-#include "packets/message_basic.h"
 #include "packets/s2c/0x01d_item_same.h"
 
 #include "lua/luautils.h"
@@ -51,6 +49,7 @@
 #include "entities/mobentity.h"
 #include "entities/petentity.h"
 #include "entities/trustentity.h"
+#include "enums/msg_std.h"
 #include "enums/weather.h"
 #include "item_container.h"
 #include "items.h"
@@ -63,11 +62,12 @@
 #include "modifier.h"
 #include "navmesh.h"
 #include "notoriety_container.h"
-#include "packets/char_recast.h"
 #include "packets/pet_sync.h"
-#include "packets/position.h"
+#include "packets/s2c/0x029_battle_message.h"
 #include "packets/s2c/0x058_assist.h"
+#include "packets/s2c/0x05b_wpos.h"
 #include "packets/s2c/0x0ac_command_data.h"
+#include "packets/s2c/0x119_abil_recast.h"
 #include "party.h"
 #include "petskill.h"
 #include "recast_container.h"
@@ -2154,16 +2154,16 @@ namespace battleutils
                 switch (damageType)
                 {
                     case DAMAGE_TYPE::PIERCING:
-                        damage = damage * (1 + PDefender->getMod(Mod::PIERCE_SDT) / 10000);
+                        damage = damage * (1 + PDefender->getMod(Mod::PIERCE_SDT) / 10000.0f);
                         break;
                     case DAMAGE_TYPE::SLASHING:
-                        damage = damage * (1 + PDefender->getMod(Mod::SLASH_SDT) / 10000);
+                        damage = damage * (1 + PDefender->getMod(Mod::SLASH_SDT) / 10000.0f);
                         break;
                     case DAMAGE_TYPE::IMPACT:
-                        damage = damage * (1 + PDefender->getMod(Mod::IMPACT_SDT) / 10000);
+                        damage = damage * (1 + PDefender->getMod(Mod::IMPACT_SDT) / 10000.0f);
                         break;
                     case DAMAGE_TYPE::HTH:
-                        damage = damage * (1 + PDefender->getMod(Mod::HTH_SDT) / 10000);
+                        damage = damage * (1 + PDefender->getMod(Mod::HTH_SDT) / 10000.0f);
                         break;
                     default:
                         break;
@@ -2171,7 +2171,7 @@ namespace battleutils
             }
             else
             {
-                damage = damage * (1 + PDefender->getMod(Mod::HTH_SDT) / 10000);
+                damage = damage * (1 + PDefender->getMod(Mod::HTH_SDT) / 10000.0f);
             }
 
             if (isBlocked)
@@ -2999,8 +2999,10 @@ namespace battleutils
             critHitRate -= PDefender->StatusEffectContainer->GetStatusEffect(EFFECT_YONIN)->GetPower();
         }
 
+        // Check for Mighty Strikes since Ranged Attacks do not get the crit bonus
+        critHitRate += PAttacker->getMod(Mod::CRITHITRATE) - (PAttacker->StatusEffectContainer->HasStatusEffect(EFFECT_MIGHTY_STRIKES) ? 100 : 0);
+
         critHitRate += GetAGICritBonus(PAttacker, PDefender);
-        critHitRate += PAttacker->getMod(Mod::CRITHITRATE);
         critHitRate -= PDefender->getMod(Mod::CRITICAL_HIT_EVASION); // Similar to merits. However, it can be possitive or negative. When mod is negative, it raises crit-hit-rate.
         critHitRate = std::clamp(critHitRate, 0, 100);
 
@@ -3858,7 +3860,9 @@ namespace battleutils
     }
 
     // This whole thing need re-evaluated
-    int16 GetSkillchainMinimumResistance(SKILLCHAIN_ELEMENT element, CBattleEntity* PDefender, ELEMENT* appliedEle)
+    // TODO: move skillchains to lua
+    // This is horrible...
+    int16 GetSkillchainMinimumResistance(SKILLCHAIN_ELEMENT element, CBattleEntity* PDefender, ELEMENT& appliedEle)
     {
         static const Mod resistances[][4] = {
             { Mod::NONE, Mod::NONE, Mod::NONE, Mod::NONE },        // SC_NONE
@@ -3880,6 +3884,48 @@ namespace battleutils
             { Mod::ICE_SDT, Mod::EARTH_SDT, Mod::WATER_SDT, Mod::DARK_SDT },    // SC_DARKNESS
             { Mod::FIRE_SDT, Mod::WIND_SDT, Mod::THUNDER_SDT, Mod::LIGHT_SDT }, // SC_LIGHT
             { Mod::ICE_SDT, Mod::EARTH_SDT, Mod::WATER_SDT, Mod::DARK_SDT },    // SC_DARKNESS_II
+        };
+
+        auto resRankToAbsorbMod = [](const Mod resistanceRank) -> Mod
+        {
+            switch (resistanceRank)
+            {
+                case Mod::FIRE_RES_RANK:
+                    return Mod::FIRE_ABSORB;
+                case Mod::ICE_RES_RANK:
+                    return Mod::ICE_ABSORB;
+                case Mod::WIND_RES_RANK:
+                    return Mod::WIND_ABSORB;
+                case Mod::EARTH_RES_RANK:
+                    return Mod::EARTH_ABSORB;
+                case Mod::THUNDER_RES_RANK:
+                    return Mod::LTNG_ABSORB;
+                case Mod::WATER_RES_RANK:
+                    return Mod::WATER_ABSORB;
+                case Mod::LIGHT_RES_RANK:
+                    return Mod::LIGHT_ABSORB;
+                case Mod::DARK_RES_RANK:
+                    return Mod::DARK_ABSORB;
+                default:
+                    return Mod::NONE;
+            }
+        };
+
+        auto getAbsorbElementOrDefault = [&](const Mod resRanks[4], const Mod fallback) -> Mod
+        {
+            for (int i = 0; i < 4; ++i)
+            {
+                if (resRanks[i] == Mod::NONE)
+                {
+                    continue;
+                }
+
+                if (PDefender->getMod(resRankToAbsorbMod(resRanks[i])) > 0)
+                {
+                    return resRanks[i];
+                }
+            }
+            return fallback;
         };
 
         Mod defMod = Mod::NONE;
@@ -3942,31 +3988,33 @@ namespace battleutils
                 break;
         }
 
+        defMod = getAbsorbElementOrDefault(resistances[element], defMod);
+
         switch (defMod)
         {
-            case Mod::FIRE_SDT:
-                *appliedEle = ELEMENT_FIRE;
+            case Mod::FIRE_RES_RANK:
+                appliedEle = ELEMENT_FIRE;
                 break;
-            case Mod::ICE_SDT:
-                *appliedEle = ELEMENT_ICE;
+            case Mod::ICE_RES_RANK:
+                appliedEle = ELEMENT_ICE;
                 break;
-            case Mod::WIND_SDT:
-                *appliedEle = ELEMENT_WIND;
+            case Mod::WIND_RES_RANK:
+                appliedEle = ELEMENT_WIND;
                 break;
-            case Mod::EARTH_SDT:
-                *appliedEle = ELEMENT_EARTH;
+            case Mod::EARTH_RES_RANK:
+                appliedEle = ELEMENT_EARTH;
                 break;
-            case Mod::THUNDER_SDT:
-                *appliedEle = ELEMENT_THUNDER;
+            case Mod::THUNDER_RES_RANK:
+                appliedEle = ELEMENT_THUNDER;
                 break;
-            case Mod::WATER_SDT:
-                *appliedEle = ELEMENT_WATER;
+            case Mod::WATER_RES_RANK:
+                appliedEle = ELEMENT_WATER;
                 break;
-            case Mod::LIGHT_SDT:
-                *appliedEle = ELEMENT_LIGHT;
+            case Mod::LIGHT_RES_RANK:
+                appliedEle = ELEMENT_LIGHT;
                 break;
-            case Mod::DARK_SDT:
-                *appliedEle = ELEMENT_DARK;
+            case Mod::DARK_RES_RANK:
+                appliedEle = ELEMENT_DARK;
                 break;
             default:
                 break;
@@ -4039,7 +4087,7 @@ namespace battleutils
         uint16             chainLevel = PEffect->GetTier();
         uint16             chainCount = PEffect->GetSubPower();
         ELEMENT            appliedEle = ELEMENT_NONE;
-        int16              resistance = GetSkillchainMinimumResistance(skillchain, PDefender, &appliedEle);
+        int16              resistance = GetSkillchainMinimumResistance(skillchain, PDefender, appliedEle);
 
         if (chainLevel <= 0 || chainLevel > 4 || chainCount <= 0 || chainCount > 5)
         {
@@ -4054,28 +4102,30 @@ namespace battleutils
         //            TODO:     × (1 + Day/Weather bonuses)
         //            TODO:     × (1 + Staff Affinity)
 
-        const auto closingDamage      = (double)(abs(lastSkillDamage));
+        const auto closingDamage      = static_cast<float>(abs(lastSkillDamage));
         const auto skillchainLevel    = g_SkillChainDamageModifiers[chainLevel][chainCount] / 1000.0f;
-        const auto skillchainBonus    = (100 + PAttacker->getMod(Mod::SKILLCHAINBONUS)) / 100.0f;
-        const auto skillchainDmgBonus = (10000 + PAttacker->getMod(Mod::SKILLCHAINDMG)) / 10000.0f;
+        const auto skillchainBonus    = (100.0f + PAttacker->getMod(Mod::SKILLCHAINBONUS)) / 100.0f;
+        const auto skillchainDmgBonus = (10000.0f + PAttacker->getMod(Mod::SKILLCHAINDMG)) / 10000.0f;
         const auto dayWeatherBonus    = 1.0f; // TODO: Implement day/weather bonuses
         const auto staffAffinity      = 1.0f; // TODO: Implement staff affinity
 
-        auto damage = (int32)floor(closingDamage * skillchainLevel * skillchainBonus * skillchainDmgBonus * dayWeatherBonus * staffAffinity);
+        int32 damage = std::floor(closingDamage * skillchainLevel * skillchainBonus * skillchainDmgBonus * dayWeatherBonus * staffAffinity);
 
         auto* PChar = dynamic_cast<CCharEntity*>(PAttacker);
         if (PChar && PChar->StatusEffectContainer->HasStatusEffect(EFFECT_INNIN) && behind(PChar->loc.p, PDefender->loc.p, 64))
         {
-            damage = (int32)(damage * (1.0f + PChar->PMeritPoints->GetMeritValue(MERIT_INNIN_EFFECT, PChar) / 100.0f));
+            damage = std::floor(static_cast<float>(damage) * (1.0f + PChar->PMeritPoints->GetMeritValue(MERIT_INNIN_EFFECT, PChar) / 100.0f));
         }
 
         if (PDefender->getMod(Mod::SENGIKORI_SC_DMG_DEBUFF) > 0)
         {
-            damage = static_cast<int32>(damage * (1.0f + PDefender->getMod(Mod::SENGIKORI_SC_DMG_DEBUFF) / 100.0f));
+            damage = std::floor(static_cast<float>(damage) * (1.0f + PDefender->getMod(Mod::SENGIKORI_SC_DMG_DEBUFF) / 100.0f));
             PDefender->setModifier(Mod::SENGIKORI_SC_DMG_DEBUFF, 0); // Consume the effect
         }
 
-        damage = damage * (10000 - resistance) / 10000;
+        float damageReductionMult = (10000.0f - static_cast<float>(resistance)) / 10000.0f;
+
+        damage = std::floor(static_cast<float>(damage) * damageReductionMult);
         damage = MagicDmgTaken(PDefender, damage, appliedEle);
         if (damage > 0)
         {
@@ -4109,7 +4159,7 @@ namespace battleutils
 
             case TYPE_MOB:
             {
-                ((CMobEntity*)PDefender)->PEnmityContainer->UpdateEnmityFromDamage(taChar ? taChar : PAttacker, (uint16)damage);
+                static_cast<CMobEntity*>(PDefender)->PEnmityContainer->UpdateEnmityFromDamage(taChar ? taChar : PAttacker, std::abs(damage)); // assume negative damage (healing) deals the same enmity as dealing damage
             }
             break;
             default:
@@ -5699,8 +5749,8 @@ namespace battleutils
             else
             {
                 // draw in!
-                PTarget->loc.zone->PushPacket(PTarget, CHAR_INRANGE_SELF, std::make_unique<CPositionPacket>(PTarget, nearEntity));
-                PTarget->loc.zone->PushPacket(PTarget, CHAR_INRANGE_SELF, std::make_unique<CMessageBasicPacket>(PTarget, PTarget, 0, 0, 232));
+                PTarget->loc.zone->PushPacket(PTarget, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_WPOS>(PTarget, nearEntity));
+                PTarget->loc.zone->PushPacket(PTarget, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(PTarget, PTarget, 0, 0, static_cast<MSGBASIC_ID>(232)));
             }
         }
     }
@@ -5868,7 +5918,7 @@ namespace battleutils
                     if (auto PCharTarget = dynamic_cast<CCharEntity*>(PTarget))
                     {
                         // Update target's recast state: caster's will be handled in CCharEntity::OnAbility.
-                        PCharTarget->pushPacket<CCharRecastPacket>(PCharTarget);
+                        PCharTarget->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PCharTarget);
                     }
                 }
                 return true;
@@ -5899,7 +5949,7 @@ namespace battleutils
                 if (auto PCharTarget = dynamic_cast<CCharEntity*>(PTarget))
                 {
                     // Update target's recast state: caster's will be handled in CCharEntity::OnAbility.
-                    PCharTarget->pushPacket<CCharRecastPacket>(PCharTarget);
+                    PCharTarget->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PCharTarget);
                 }
             }
 
@@ -6936,5 +6986,54 @@ namespace battleutils
             }
         }
         return 1.0;
+    }
+
+    void addEcosystemKillerEffects(CBattleEntity* PBattleEntity)
+    {
+        // Killer Effect
+        switch (PBattleEntity->m_EcoSystem)
+        {
+            case ECOSYSTEM::AMORPH:
+                PBattleEntity->addModifier(Mod::BIRD_KILLER, 5);
+                break;
+            case ECOSYSTEM::AQUAN:
+                PBattleEntity->addModifier(Mod::AMORPH_KILLER, 5);
+                break;
+            case ECOSYSTEM::ARCANA:
+                PBattleEntity->addModifier(Mod::UNDEAD_KILLER, 5);
+                break;
+            case ECOSYSTEM::BEAST:
+                PBattleEntity->addModifier(Mod::LIZARD_KILLER, 5);
+                break;
+            case ECOSYSTEM::BIRD:
+                PBattleEntity->addModifier(Mod::AQUAN_KILLER, 5);
+                break;
+            case ECOSYSTEM::DEMON:
+                PBattleEntity->addModifier(Mod::DRAGON_KILLER, 5);
+                break;
+            case ECOSYSTEM::DRAGON:
+                PBattleEntity->addModifier(Mod::DEMON_KILLER, 5);
+                break;
+            case ECOSYSTEM::LIZARD:
+                PBattleEntity->addModifier(Mod::VERMIN_KILLER, 5);
+                break;
+            case ECOSYSTEM::LUMINION:
+                PBattleEntity->addModifier(Mod::LUMINIAN_KILLER, 5);
+                break;
+            case ECOSYSTEM::LUMINIAN:
+                PBattleEntity->addModifier(Mod::LUMINION_KILLER, 5);
+                break;
+            case ECOSYSTEM::PLANTOID:
+                PBattleEntity->addModifier(Mod::BEAST_KILLER, 5);
+                break;
+            case ECOSYSTEM::UNDEAD:
+                PBattleEntity->addModifier(Mod::ARCANA_KILLER, 5);
+                break;
+            case ECOSYSTEM::VERMIN:
+                PBattleEntity->addModifier(Mod::PLANTOID_KILLER, 5);
+                break;
+            default:
+                break;
+        }
     }
 }; // namespace battleutils

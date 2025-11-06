@@ -239,8 +239,9 @@ std::list<SearchEntity*> CDataLoader::GetPlayersList(search_req sr, int* count)
     }
 
     std::string fmtQuery =
-        "SELECT charid, partyid, charname, pos_zone, pos_prevzone, nation, rank_sandoria, rank_bastok, "
-        "rank_windurst, race, mjob, sjob, mlvl, slvl, languages, settings, seacom_type, disconnecting, gmHiddenEnabled, muted "
+        "SELECT charid, partyid, charname, pos_zone, pos_prevzone, nation, rank_sandoria, rank_bastok, unity_leader, "
+        "rank_windurst, race, mjob, sjob, mlvl, slvl, languages, settings, seacom_type, disconnecting, gmHiddenEnabled, muted, "
+        "linkshellid1, linkshellid2 "
         "FROM accounts_sessions "
         "LEFT JOIN accounts_parties USING (charid) "
         "LEFT JOIN chars USING (charid) "
@@ -299,12 +300,14 @@ std::list<SearchEntity*> CDataLoader::GetPlayersList(search_req sr, int* count)
             PPlayer->zone          = (PPlayer->zone == 0 ? PPlayer->prevzone : PPlayer->zone);
             PPlayer->languages     = rset->get<uint8>("languages");
             PPlayer->mentor        = playerSettings.MentorFlg;
+            PPlayer->linkshellid1  = rset->get<uint32>("linkshellid1");
+            PPlayer->linkshellid2  = rset->get<uint32>("linkshellid2");
             PPlayer->seacom_type   = rset->get<uint8>("seacom_type");
             PPlayer->disconnecting = rset->get<bool>("disconnecting");
             PPlayer->gmHidden      = rset->get<bool>("gmHiddenEnabled");
             PPlayer->muted         = rset->get<bool>("muted");
-
-            const auto partyid = rset->getOrDefault<uint32>("partyid", 0);
+            PPlayer->unityLeader   = rset->get<uint8>("unity_leader");
+            const auto partyid     = rset->getOrDefault<uint32>("partyid", 0);
 
             if (PPlayer->mentor)
             {
@@ -359,6 +362,23 @@ std::list<SearchEntity*> CDataLoader::GetPlayersList(search_req sr, int* count)
                 PPlayer->sjob = 0;
             }
 
+            // filter by linkshell ID
+            if (sr.lsId.has_value())
+            {
+                auto searchedLsId = sr.lsId.value();
+                if (searchedLsId == 0)
+                {
+                    // lsId of 0 is automatic fail, it means the requester did not have a linkshell equipped
+                    continue;
+                }
+
+                if (PPlayer->linkshellid1 != searchedLsId && PPlayer->linkshellid2 != searchedLsId)
+                {
+                    // Current player does not match the given LS ID
+                    continue;
+                }
+            }
+
             // filter by job
             if (sr.jobid > 0 && sr.jobid != PPlayer->mjob)
             {
@@ -411,9 +431,21 @@ std::list<SearchEntity*> CDataLoader::GetPlayersList(search_req sr, int* count)
             }
 
             // filter by flag (away, seek party etc.)
-            if (sr.flags != 0 && !(PPlayer->flags2 & sr.flags))
+            if (sr.flags != 0)
             {
-                continue;
+                // Check if unity ID is set (bits 22+)
+                if (uint32_t searchUnityId = sr.flags >> 22; searchUnityId != 0)
+                {
+                    if (PPlayer->unityLeader != searchUnityId)
+                    {
+                        continue;
+                    }
+                }
+                else if (!(PPlayer->flags2 & sr.flags))
+                {
+                    // Normal bitwise check for other flags (bits 0-21)
+                    continue;
+                }
             }
 
             // filter by level

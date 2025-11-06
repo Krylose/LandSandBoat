@@ -27,23 +27,23 @@
 
 #include "packets/action.h"
 #include "packets/basic.h"
-#include "packets/char_health.h"
-#include "packets/char_recast.h"
 #include "packets/char_status.h"
 #include "packets/char_sync.h"
 #include "packets/char_update.h"
 #include "packets/entity_update.h"
-#include "packets/event.h"
-#include "packets/message_special.h"
-#include "packets/message_standard.h"
-#include "packets/message_system.h"
-#include "packets/message_text.h"
 #include "packets/s2c/0x01d_item_same.h"
+#include "packets/s2c/0x02a_talknumwork.h"
+#include "packets/s2c/0x032_event.h"
 #include "packets/s2c/0x033_eventstr.h"
+#include "packets/s2c/0x034_eventnum.h"
+#include "packets/s2c/0x036_talknum.h"
 #include "packets/s2c/0x051_grap_list.h"
 #include "packets/s2c/0x052_eventucoff.h"
+#include "packets/s2c/0x053_systemmes.h"
 #include "packets/s2c/0x055_scenarioitem.h"
 #include "packets/s2c/0x058_assist.h"
+#include "packets/s2c/0x0df_group_attr.h"
+#include "packets/s2c/0x119_abil_recast.h"
 
 #include "ai/ai_container.h"
 #include "ai/controllers/player_controller.h"
@@ -75,11 +75,10 @@
 #include "latent_effect_container.h"
 #include "linkshell.h"
 #include "mob_modifier.h"
-#include "mobskill.h"
 #include "modifier.h"
 #include "notoriety_container.h"
-#include "packets/char_job_extra.h"
-#include "packets/status_effects.h"
+#include "packets/s2c/0x029_battle_message.h"
+#include "packets/s2c/0x063_miscdata_status_icons.h"
 #include "petskill.h"
 #include "spell.h"
 #include "status_effect_container.h"
@@ -259,6 +258,7 @@ CCharEntity::CCharEntity()
     m_StartActionPos   = {};
     m_ActionOffsetPos  = {};
     m_previousLocation = {};
+    m_PrevZonelineID   = 0;
 
     m_jobMasterDisplay = false;
     m_EffectsChanged   = false;
@@ -1087,9 +1087,8 @@ void CCharEntity::PostTick()
     {
         pushPacket<CCharStatusPacket>(this);
         pushPacket<CCharSyncPacket>(this);
-        pushPacket<CCharJobExtraPacket>(this, true);
-        pushPacket<CCharJobExtraPacket>(this, false);
-        pushPacket<CStatusEffectPacket>(this);
+        charutils::SendExtendedJobPackets(this);
+        pushPacket<GP_SERV_COMMAND_MISCDATA::STATUS_ICONS>(this);
         if (PParty)
         {
             PParty->PushEffectsPacket();
@@ -1118,16 +1117,20 @@ void CCharEntity::PostTick()
             // clang-format off
             ForAlliance([&](auto PEntity)
             {
-                static_cast<CCharEntity*>(PEntity)->pushPacket<CCharHealthPacket>(this);
+                static_cast<CCharEntity*>(PEntity)->pushPacket<GP_SERV_COMMAND_GROUP_ATTR>(this);
             });
             // clang-format on
         }
         // Do not send an update packet when only the position has change
-        if (updatemask ^ UPDATE_POS)
+        // Send one if the m_SendServerStatus flag is set (cutscenes will ALWAYS send one, and may also send an 0x00D!)
+        // sendServerStatus_ is essentially like a separate update mask, and acts like an "extension" of updatemask
+        if (updatemask ^ UPDATE_POS || sendServerStatus_)
         {
             pushPacket<CCharStatusPacket>(this);
         }
-        updatemask = 0;
+
+        sendServerStatus_ = false;
+        updatemask        = 0;
     }
 }
 
@@ -1249,25 +1252,25 @@ bool CCharEntity::CanAttack(CBattleEntity* PTarget, std::unique_ptr<CBasicPacket
 
     if (!IsMobOwner(PTarget))
     {
-        errMsg = std::make_unique<CMessageBasicPacket>(this, PTarget, 0, 0, MSGBASIC_ALREADY_CLAIMED);
+        errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, PTarget, 0, 0, MSGBASIC_ALREADY_CLAIMED);
 
         PAI->Disengage();
         return false;
     }
     else if (!this->StatusEffectContainer->HasStatusEffect({ EFFECT_CHARM, EFFECT_CHARM_II }) && dist > 30)
     {
-        errMsg = std::make_unique<CMessageBasicPacket>(this, PTarget, 0, 0, MSGBASIC_LOSE_SIGHT);
+        errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, PTarget, 0, 0, MSGBASIC_LOSE_SIGHT);
         PAI->Disengage();
         return false;
     }
     else if (!facing(this->loc.p, PTarget->loc.p, 64))
     {
-        errMsg = std::make_unique<CMessageBasicPacket>(this, PTarget, 0, 0, MSGBASIC_UNABLE_TO_SEE_TARG);
+        errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, PTarget, 0, 0, MSGBASIC_UNABLE_TO_SEE_TARG);
         return false;
     }
     else if ((dist - PTarget->m_ModelRadius) > GetMeleeRange())
     {
-        errMsg = std::make_unique<CMessageBasicPacket>(this, PTarget, 0, 0, MSGBASIC_TARG_OUT_OF_RANGE);
+        errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, PTarget, 0, 0, MSGBASIC_TARG_OUT_OF_RANGE);
         return false;
     }
     return true;
@@ -1656,12 +1659,12 @@ void CCharEntity::OnAbility(CAbilityState& state, action_t& action)
     auto* PAbility = state.GetAbility();
     if (this->PRecastContainer->HasRecast(RECAST_ABILITY, PAbility->getRecastId(), PAbility->getRecastTime()))
     {
-        pushPacket<CMessageBasicPacket>(this, this, 0, 0, MSGBASIC_WAIT_LONGER);
+        pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, this, 0, 0, MSGBASIC_WAIT_LONGER);
         return;
     }
     if (this->StatusEffectContainer->HasStatusEffect(EFFECT_AMNESIA))
     {
-        pushPacket<CMessageBasicPacket>(this, this, 0, 0, MSGBASIC_UNABLE_TO_USE_JA2);
+        pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, this, 0, 0, MSGBASIC_UNABLE_TO_USE_JA2);
         return;
     }
 
@@ -2000,7 +2003,7 @@ void CCharEntity::OnAbility(CAbilityState& state, action_t& action)
             PRecastContainer->Add(RECAST_ABILITY, (recastID == 173 ? 174 : 173), action.recast);
         }
 
-        pushPacket<CCharRecastPacket>(this);
+        pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(this);
 
         // TODO: refactor
         //  if (this->getMijinGakure())
@@ -2098,7 +2101,7 @@ void CCharEntity::OnRangedAttack(CRangeState& state, action_t& action)
     for (uint8 i = 1; i <= hitCount; ++i)
     {
         // TODO: add Barrage mod racc bonus
-        if (xirand::GetRandomNumber(100) < battleutils::GetRangedHitRate(this, PTarget, isBarrage, 0)) // hit!
+        if (xirand::GetRandomNumber(100) < battleutils::GetRangedHitRate(this, PTarget, isBarrage, 0) && !state.IsOutOfRange()) // hit!
         {
             // absorbed by shadow
             if (battleutils::IsAbsorbByShadow(PTarget, this))
@@ -2142,7 +2145,7 @@ void CCharEntity::OnRangedAttack(CRangeState& state, action_t& action)
             damage                  = 0;
             actionTarget.reaction   = REACTION::EVADE;
             actionTarget.speceffect = SPECEFFECT::NONE;
-            actionTarget.messageID  = 354;
+            actionTarget.messageID  = MSGBASIC_RANGED_ATTACK_MISS;
             hitCount                = i; // end barrage, shot missed
         }
 
@@ -2409,7 +2412,7 @@ void CCharEntity::OnDeathTimer()
     TracyZoneScoped;
 
     charutils::SetCharVar(this, "expLost", 0);
-    charutils::HomePoint(this, true);
+    requestedWarp = true; // zone entities will warp us on the next tick
 }
 
 void CCharEntity::OnRaise()
@@ -2521,7 +2524,7 @@ void CCharEntity::OnItemFinish(CItemState& state, action_t& action)
     if (!PItem->isType(ITEM_EQUIPMENT) && (PItem->getQuantity() < 1 || PItem->getReserve() > 0))
     {
         ShowWarning("OnItemFinish: %s attempted to use reserved/insufficient %s (%u).", this->getName(), PItem->getName(), PItem->getID());
-        this->pushPacket<CMessageBasicPacket>(this, this, PItem->getID(), 0, MSGBASIC_ITEM_FAILS_TO_ACTIVATE);
+        this->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, this, PItem->getID(), 0, MSGBASIC_ITEM_FAILS_TO_ACTIVATE);
 
         return;
     }
@@ -2625,9 +2628,9 @@ CBattleEntity* CCharEntity::IsValidTarget(uint16 targid, uint16 validTargetFlags
         if (PTarget->objtype == TYPE_PC && charutils::IsAidBlocked(this, static_cast<CCharEntity*>(PTarget)))
         {
             // Target is blocking assistance
-            errMsg = std::make_unique<CMessageSystemPacket>(0, 0, MsgStd::TargetIsCurrentlyBlocking);
+            errMsg = std::make_unique<GP_SERV_COMMAND_SYSTEMMES>(0, 0, MsgStd::TargetIsCurrentlyBlocking);
             // Interaction was blocked
-            static_cast<CCharEntity*>(PTarget)->pushPacket<CMessageSystemPacket>(0, 0, MsgStd::BlockedByBlockaid);
+            static_cast<CCharEntity*>(PTarget)->pushPacket<GP_SERV_COMMAND_SYSTEMMES>(0, 0, MsgStd::BlockedByBlockaid);
         }
         else if (IsMobOwner(PTarget))
         {
@@ -2637,17 +2640,17 @@ CBattleEntity* CCharEntity::IsValidTarget(uint16 targid, uint16 validTargetFlags
             }
             else
             {
-                errMsg = std::make_unique<CMessageBasicPacket>(this, this, 0, 0, MSGBASIC_CANNOT_ON_THAT_TARG);
+                errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, this, 0, 0, MSGBASIC_CANNOT_ON_THAT_TARG);
             }
         }
         else
         {
-            errMsg = std::make_unique<CMessageBasicPacket>(this, PTarget, 0, 0, MSGBASIC_ALREADY_CLAIMED);
+            errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, PTarget, 0, 0, MSGBASIC_ALREADY_CLAIMED);
         }
     }
     else
     {
-        errMsg = std::make_unique<CMessageBasicPacket>(this, this, 0, 0, MSGBASIC_CANNOT_ATTACK_TARGET);
+        errMsg = std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, this, 0, 0, MSGBASIC_CANNOT_ATTACK_TARGET);
     }
     return nullptr;
 }
@@ -2658,11 +2661,11 @@ void CCharEntity::Die()
 
     if (PLastAttacker)
     {
-        loc.zone->PushPacket(this, CHAR_INRANGE_SELF, std::make_unique<CMessageBasicPacket>(PLastAttacker, this, 0, 0, MSGBASIC_PLAYER_DEFEATED_BY));
+        loc.zone->PushPacket(this, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(PLastAttacker, this, 0, 0, MSGBASIC_PLAYER_DEFEATED_BY));
     }
     else
     {
-        loc.zone->PushPacket(this, CHAR_INRANGE_SELF, std::make_unique<CMessageBasicPacket>(this, this, 0, 0, MSGBASIC_FALLS_TO_GROUND));
+        loc.zone->PushPacket(this, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(this, this, 0, 0, MSGBASIC_FALLS_TO_GROUND));
     }
 
     battleutils::RelinquishClaim(this);
@@ -2873,7 +2876,7 @@ void CCharEntity::UpdateMoghancement()
     // Always show which moghancement the player has if they have one at all
     if (newMoghancementID != 0)
     {
-        pushPacket<CMessageSpecialPacket>(this, luautils::GetTextIDVariable(getZone(), "KEYITEM_OBTAINED"), newMoghancementID, 0, 0, 0, false);
+        pushPacket<GP_SERV_COMMAND_TALKNUMWORK>(this, luautils::GetTextIDVariable(getZone(), "KEYITEM_OBTAINED"), newMoghancementID, 0, 0, 0, false);
     }
 
     if (newMoghancementID != m_moghancementID)
@@ -3243,8 +3246,37 @@ void CCharEntity::queueEvent(EventInfo* eventToQueue)
 void CCharEntity::tryStartNextEvent()
 {
     TracyZoneScoped;
-    if (isInEvent() || eventQueue.empty())
+    if (isInEvent())
+    {
         return;
+    }
+
+    if (eventQueue.empty())
+    {
+        updatemask |= UPDATE_POS; // TODO: decouple from this. We want the 250ms post-tick processing
+
+        // Chocobo NPC (outside, gives you a mount) edge case
+        if (auto PStatusEffect = StatusEffectContainer->GetStatusEffect(EFFECT_MOUNTED))
+        {
+            switch (PStatusEffect->GetPower())
+            {
+                case MOUNT_CHOCOBO:
+                case MOUNT_NOBLE_CHOCOBO:
+                    animation = ANIMATION_CHOCOBO;
+                    break;
+                default:
+                    animation = ANIMATION_MOUNT;
+                    break;
+            }
+        }
+        else
+        {
+            animation = ANIMATION_NONE;
+        }
+
+        sendServerStatus_ = true;
+        return;
+    }
 
     EventInfo* oldEvent = currentEvent;
     currentEvent        = eventQueue.front();
@@ -3275,12 +3307,23 @@ void CCharEntity::tryStartNextEvent()
 
     if (currentEvent->strings.empty())
     {
-        pushPacket<CEventPacket>(this, currentEvent);
+        if (currentEvent->params.size() > 0 || currentEvent->textTable != -1)
+        {
+            pushPacket<GP_SERV_COMMAND_EVENTNUM>(this, currentEvent);
+        }
+        else
+        {
+            pushPacket<GP_SERV_COMMAND_EVENT>(this, currentEvent);
+        }
     }
     else
     {
         pushPacket<GP_SERV_COMMAND_EVENTSTR>(this, currentEvent);
     }
+
+    animation = ANIMATION_EVENT;
+    updatemask |= UPDATE_POS; // TODO: decouple from this. We want the 250ms post-tick processing.
+    sendServerStatus_ = true; // sendServerStatus_ is somewhat like an update mask on its own
 }
 
 void CCharEntity::skipEvent()
@@ -3288,13 +3331,13 @@ void CCharEntity::skipEvent()
     TracyZoneScoped;
     if (!m_Locked && !isInEvent() && (!currentEvent->cutsceneOptions.empty() || currentEvent->interruptText != 0))
     {
-        pushPacket<CMessageSystemPacket>(0, 0, MsgStd::EventSkipped);
+        pushPacket<GP_SERV_COMMAND_SYSTEMMES>(0, 0, MsgStd::EventSkipped);
         pushPacket<GP_SERV_COMMAND_EVENTUCOFF>(this, GP_SERV_COMMAND_EVENTUCOFF_MODE::CancelEvent);
         m_Substate = CHAR_SUBSTATE::SUBSTATE_NONE;
 
         if (currentEvent->interruptText != 0)
         {
-            pushPacket<CMessageTextPacket>(currentEvent->targetEntity, currentEvent->interruptText, false);
+            pushPacket<GP_SERV_COMMAND_TALKNUM>(currentEvent->targetEntity, currentEvent->interruptText, false);
         }
 
         endCurrentEvent();

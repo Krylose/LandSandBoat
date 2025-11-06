@@ -87,6 +87,8 @@ void search_handler::start()
 
 void search_handler::do_read()
 {
+    std::memset(buffer_.data(), 0, buffer_.size());
+
     // clang-format off
     socket_.async_read_some(asio::buffer(buffer_.data(), buffer_.size()),
     [this, self = shared_from_this()](std::error_code ec, std::size_t length)
@@ -114,6 +116,7 @@ void search_handler::do_write()
     auto packet = searchPackets.front();
     auto length = packet.getSize();
 
+    std::memset(buffer_.data(), 0, buffer_.size());
     std::memcpy(buffer_.data(), packet.getData(), packet.getSize());
 
     searchPackets.pop_front();
@@ -435,7 +438,7 @@ void search_handler::HandleSearchComment()
 
 void search_handler::HandleSearchRequest()
 {
-    search_req sr = _HandleSearchRequest();
+    const search_req sr = _HandleSearchRequest();
 
     CDataLoader PDataLoader;
     int         totalCount = 0;
@@ -576,6 +579,7 @@ search_req search_handler::_HandleSearchRequest()
 {
     // This function constructs a `search_req` based on which query should be sent to the database.
     // The results from the database will eventually be sent to the client.
+    search_req sr;
 
     uint32 bitOffset = 0;
 
@@ -617,7 +621,7 @@ search_req search_handler::_HandleSearchRequest()
         uint8 EntryType = (uint8)unpackBitsLE(&buffer_[0x11], bitOffset, 5);
         bitOffset += 5;
 
-        if ((EntryType != SEARCH_FRIEND) && (EntryType != SEARCH_LINKSHELL) && (EntryType != SEARCH_COMMENT) && (EntryType != SEARCH_FLAGS2))
+        if ((EntryType != SEARCH_FRIEND) && (EntryType != SEARCH_LINKSHELL) && (EntryType != SEARCH_LINKSHELL2) && (EntryType != SEARCH_COMMENT) && (EntryType != SEARCH_FLAGS2))
         {
             if ((bitOffset + 3) >= workloadBits) // so 0000000 at the end does not get interpreted as name entry
             {
@@ -745,10 +749,18 @@ search_req search_handler::_HandleSearchRequest()
             // so they may be off
             case SEARCH_LINKSHELL: // 4 Byte
             {
-                unsigned int lsId = (unsigned int)unpackBitsLE(&buffer_[0x11], bitOffset, 32);
+                sr.lsId = static_cast<uint32>(unpackBitsLE(&buffer_[0x11], bitOffset, 32));
                 bitOffset += 32;
 
-                ShowInfoFmt("Linkshell Entry found. Value: {}", hex32ToString(lsId));
+                ShowInfoFmt("Linkshell Entry found. Value: {}", hex32ToString(sr.lsId.value()));
+                break;
+            }
+            case SEARCH_LINKSHELL2: // 4 Byte
+            {
+                sr.lsId = static_cast<uint32>(unpackBitsLE(&buffer_[0x11], bitOffset, 32));
+                bitOffset += 32;
+
+                ShowInfoFmt("Linkshell2 Entry found. Value: {}", hex32ToString(sr.lsId.value()));
                 break;
             }
             case SEARCH_FRIEND: // Friend Packet, 0 byte
@@ -789,7 +801,6 @@ search_req search_handler::_HandleSearchRequest()
     const auto printableName = nameLen > 0 ? name : "<empty>";
     ShowInfoFmt("Name: {} Job: {} Lvls: {} ~ {}", printableName, jobid, minLvl, maxLvl);
 
-    search_req sr;
     sr.jobid  = jobid;
     sr.maxlvl = maxLvl;
     sr.minlvl = minLvl;

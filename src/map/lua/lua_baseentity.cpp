@@ -46,6 +46,7 @@
 #include "ipc_client.h"
 #include "item_container.h"
 #include "items.h"
+#include "job_points.h"
 #include "latent_effect_container.h"
 #include "linkshell.h"
 #include "mob_modifier.h"
@@ -92,64 +93,61 @@
 #include "entities/npcentity.h"
 #include "entities/petentity.h"
 #include "entities/trustentity.h"
+#include "enums/chat_message_area.h"
 #include "enums/item_lockflg.h"
 #include "items/item_furnishing.h"
 #include "items/item_linkshell.h"
 
 #include "packets/action.h"
-#include "packets/auction_house.h"
-#include "packets/char_health.h"
-#include "packets/char_job_extra.h"
-#include "packets/char_jobs.h"
-#include "packets/char_recast.h"
-#include "packets/char_stats.h"
 #include "packets/char_status.h"
 #include "packets/char_sync.h"
-#include "packets/chat_message.h"
-#include "packets/conquest_map.h"
-#include "packets/entity_enable_list.h"
 #include "packets/entity_update.h"
-#include "packets/event.h"
-#include "packets/instance_entry.h"
-#include "packets/menu_jobpoints.h"
-#include "packets/menu_merit.h"
-#include "packets/message_basic.h"
-#include "packets/message_combat.h"
-#include "packets/message_name.h"
-#include "packets/message_special.h"
-#include "packets/message_standard.h"
-#include "packets/message_system.h"
-#include "packets/message_text.h"
-#include "packets/monipulator1.h"
-#include "packets/monipulator2.h"
-#include "packets/objective_utility.h"
-#include "packets/quest_mission_log.h"
+#include "packets/s2c/0x009_message.h"
+#include "packets/s2c/0x017_chat_std.h"
+#include "packets/s2c/0x01b_job_info.h"
 #include "packets/s2c/0x01c_item_max.h"
 #include "packets/s2c/0x01d_item_same.h"
 #include "packets/s2c/0x01f_item_list.h"
 #include "packets/s2c/0x020_item_attr.h"
+#include "packets/s2c/0x027_talknumwork2.h"
+#include "packets/s2c/0x029_battle_message.h"
+#include "packets/s2c/0x02a_talknumwork.h"
+#include "packets/s2c/0x02d_battle_message2.h"
 #include "packets/s2c/0x02e_openmogmenu.h"
+#include "packets/s2c/0x036_talknum.h"
 #include "packets/s2c/0x038_schedulor.h"
 #include "packets/s2c/0x039_mapschedulor.h"
 #include "packets/s2c/0x03a_magicschedulor.h"
 #include "packets/s2c/0x03c_shop_list.h"
 #include "packets/s2c/0x03e_shop_open.h"
+#include "packets/s2c/0x04c_auc.h"
 #include "packets/s2c/0x050_equip_list.h"
 #include "packets/s2c/0x051_grap_list.h"
 #include "packets/s2c/0x052_eventucoff.h"
+#include "packets/s2c/0x053_systemmes.h"
 #include "packets/s2c/0x055_scenarioitem.h"
+#include "packets/s2c/0x056_mission.h"
 #include "packets/s2c/0x05a_motionmes.h"
+#include "packets/s2c/0x05b_wpos.h"
 #include "packets/s2c/0x05c_pendingnum.h"
 #include "packets/s2c/0x05d_pendingstr.h"
+#include "packets/s2c/0x05e_conquest.h"
 #include "packets/s2c/0x05f_music.h"
+#include "packets/s2c/0x061_clistatus.h"
 #include "packets/s2c/0x062_clistatus2.h"
+#include "packets/s2c/0x063_miscdata_job_points.h"
+#include "packets/s2c/0x063_miscdata_merits.h"
+#include "packets/s2c/0x063_miscdata_monstrosity.h"
+#include "packets/s2c/0x075_battlefield.h"
+#include "packets/s2c/0x077_entity_vis.h"
 #include "packets/s2c/0x086_guild_open.h"
 #include "packets/s2c/0x0aa_magic_data.h"
 #include "packets/s2c/0x0ac_command_data.h"
 #include "packets/s2c/0x0ae_mount_data.h"
+#include "packets/s2c/0x0bf_registration.h"
 #include "packets/s2c/0x0e0_group_comlink.h"
 #include "packets/s2c/0x0f9_res.h"
-#include "packets/server_ip.h"
+#include "packets/s2c/0x119_abil_recast.h"
 
 #include "utils/battleutils.h"
 #include "utils/blueutils.h"
@@ -208,7 +206,7 @@ void CLuaBaseEntity::showText(CLuaBaseEntity* entity, uint16 messageID, sol::obj
     uint32 param1   = (p1 != sol::lua_nil) ? p1.as<uint32>() : 0;
     uint32 param2   = (p2 != sol::lua_nil) ? p2.as<uint32>() : 0;
     uint32 param3   = (p3 != sol::lua_nil) ? p3.as<uint32>() : 0;
-    bool   showName = (p4 != sol::lua_nil) ? p4.as<bool>() : false; // ShowName is false in CMessageSpecialPacket Constructor, so mimic the same default.
+    bool   showName = (p4 != sol::lua_nil) ? p4.as<bool>() : false; // ShowName is false in GP_SERV_COMMAND_TALKNUMWORK Constructor, so mimic the same default.
     bool   turn     = (p5 != sol::lua_nil) ? p5.as<bool>() : true;  // Turn to player, default behavior is true
 
     if (turn && PBaseEntity->objtype == TYPE_NPC)
@@ -221,11 +219,11 @@ void CLuaBaseEntity::showText(CLuaBaseEntity* entity, uint16 messageID, sol::obj
 
     if (m_PBaseEntity->objtype == TYPE_PC)
     {
-        static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<CMessageSpecialPacket>(PBaseEntity, messageID, param0, param1, param2, param3, showName);
+        static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<GP_SERV_COMMAND_TALKNUMWORK>(PBaseEntity, messageID, param0, param1, param2, param3, showName);
     }
     else
     {
-        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<CMessageSpecialPacket>(PBaseEntity, messageID, param0, param1, param3, showName));
+        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<GP_SERV_COMMAND_TALKNUMWORK>(PBaseEntity, messageID, param0, param1, param3, showName));
     }
 }
 
@@ -301,11 +299,11 @@ void CLuaBaseEntity::messageText(CLuaBaseEntity* PLuaBaseEntity, uint16 messageI
     if (auto player = dynamic_cast<CCharEntity*>(m_PBaseEntity))
     {
         player->gotMessage = true;
-        player->pushPacket<CMessageTextPacket>(PTarget, messageID, showName, mode);
+        player->pushPacket<GP_SERV_COMMAND_TALKNUM>(PTarget, messageID, showName, mode);
     }
     else
     { // broadcast in range
-        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<CMessageTextPacket>(PTarget, messageID, showName, mode));
+        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<GP_SERV_COMMAND_TALKNUM>(PTarget, messageID, showName, mode));
     }
 }
 
@@ -331,7 +329,7 @@ void CLuaBaseEntity::printToPlayer(std::string const& message, sol::object const
 
     if (auto* PChar = dynamic_cast<CCharEntity*>(m_PBaseEntity))
     {
-        PChar->pushPacket<CChatMessagePacket>(PChar, messageType, message, name);
+        PChar->pushPacket<GP_SERV_COMMAND_CHAT_STD>(PChar, messageType, message, name);
     }
 }
 
@@ -352,7 +350,7 @@ void CLuaBaseEntity::printToArea(std::string const& message, sol::object const& 
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    // see scripts\globals\msg.lua or src\map\packets\chat_message.h for values
+    // see scripts\globals\msg.lua or src\map\packets\s2c\0x017_chat_std.h for values
     CHAT_MESSAGE_TYPE messageLook  = (arg1 == sol::lua_nil) ? MESSAGE_SYSTEM_1 : arg1.as<CHAT_MESSAGE_TYPE>();
     ChatMessageArea   messageRange = (arg2 == sol::lua_nil) ? ChatMessageArea::System : arg2.as<ChatMessageArea>();
     std::string       name         = (arg3 == sol::lua_nil) ? "" : arg3.as<std::string>();
@@ -370,12 +368,12 @@ void CLuaBaseEntity::printToArea(std::string const& message, sol::object const& 
     }
     else if (messageRange == ChatMessageArea::Say)
     {
-        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<CChatMessagePacket>(PChar, messageLook, message, name));
+        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_CHAT_STD>(PChar, messageLook, message, name));
     }
     else if (messageRange == ChatMessageArea::Shout)
     {
-        PChar->loc.zone->PushPacket(PChar, CHAR_INSHOUT, std::make_unique<CChatMessagePacket>(PChar, messageLook, message, name));
-        PChar->pushPacket(std::make_unique<CChatMessagePacket>(PChar, messageLook, message, name));
+        PChar->loc.zone->PushPacket(PChar, CHAR_INSHOUT, std::make_unique<GP_SERV_COMMAND_CHAT_STD>(PChar, messageLook, message, name));
+        PChar->pushPacket(std::make_unique<GP_SERV_COMMAND_CHAT_STD>(PChar, messageLook, message, name));
     }
     else if (messageRange == ChatMessageArea::Party)
     {
@@ -409,7 +407,7 @@ void CLuaBaseEntity::printToArea(std::string const& message, sol::object const& 
             .messageType = messageLook,
         });
 
-        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<CChatMessagePacket>(PChar, messageLook, message, name));
+        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_CHAT_STD>(PChar, messageLook, message, name));
     }
     else if (messageRange == ChatMessageArea::Unity)
     {
@@ -421,7 +419,7 @@ void CLuaBaseEntity::printToArea(std::string const& message, sol::object const& 
             .messageType   = messageLook,
         });
 
-        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<CChatMessagePacket>(PChar, messageLook, message, name));
+        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_CHAT_STD>(PChar, messageLook, message, name));
     }
     else if (messageRange == ChatMessageArea::Assist)
     {
@@ -434,11 +432,11 @@ void CLuaBaseEntity::printToArea(std::string const& message, sol::object const& 
             .messageType = messageLook,
         });
 
-        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<CChatMessagePacket>(PChar, messageLook, message, name));
+        PChar->loc.zone->PushPacket(PChar, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_CHAT_STD>(PChar, messageLook, message, name));
     }
     else
     {
-        ShowError("CLuaBaseEntity::printToArea : invalid message area/messageRange value %u given by script.", messageRange);
+        ShowError("CLuaBaseEntity::printToArea : invalid message area/messageRange value %u given by script.", static_cast<uint8_t>(messageRange));
     }
 }
 
@@ -458,12 +456,12 @@ void CLuaBaseEntity::messageBasic(uint16 messageID, sol::object const& p0, sol::
 
     if (m_PBaseEntity->objtype == TYPE_PC)
     {
-        static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<CMessageBasicPacket>(m_PBaseEntity, PTarget, param0, param1, messageID);
+        static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(m_PBaseEntity, PTarget, param0, param1, static_cast<MSGBASIC_ID>(messageID));
     }
     else
     {
         // Broadcast in range
-        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<CMessageBasicPacket>(m_PBaseEntity, PTarget, param0, param1, messageID));
+        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(m_PBaseEntity, PTarget, param0, param1, static_cast<MSGBASIC_ID>(messageID)));
     }
 }
 
@@ -489,11 +487,11 @@ void CLuaBaseEntity::messageName(uint16 messageID, sol::object const& entity, so
 
     if (CCharEntity* PChar = dynamic_cast<CCharEntity*>(m_PBaseEntity))
     {
-        PChar->pushPacket<CMessageNamePacket>(PChar, messageID, PNameEntity, param0, param1, param2, param3, chatType);
+        PChar->pushPacket<GP_SERV_COMMAND_TALKNUMWORK2>(PChar, messageID, PNameEntity, param0, param1, param2, param3, chatType);
     }
     else
     {
-        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<CMessageNamePacket>(m_PBaseEntity, messageID, PNameEntity, param0, param1, param2, param3, chatType));
+        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE, std::make_unique<GP_SERV_COMMAND_TALKNUMWORK2>(m_PBaseEntity, messageID, PNameEntity, param0, param1, param2, param3, chatType));
     }
 }
 
@@ -511,7 +509,7 @@ void CLuaBaseEntity::messagePublic(uint16 messageID, CLuaBaseEntity const* PEnti
 
     if (PEntity != nullptr)
     {
-        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE_SELF, std::make_unique<CMessageBasicPacket>(m_PBaseEntity, PEntity->GetBaseEntity(), param0, param1, messageID));
+        m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_BATTLE_MESSAGE>(m_PBaseEntity, PEntity->GetBaseEntity(), param0, param1, static_cast<MSGBASIC_ID>(messageID)));
     }
 }
 
@@ -536,7 +534,7 @@ void CLuaBaseEntity::messageSpecial(uint16 messageID, sol::variadic_args va)
     uint32 param3   = va.get_type(3) == sol::type::number ? va.get<uint32>(3) : 0;
     bool   showName = va.get_type(4) == sol::type::boolean ? va.get<bool>(4) : false;
 
-    static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<CMessageSpecialPacket>(m_PBaseEntity, messageID, param0, param1, param2, param3, showName);
+    static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<GP_SERV_COMMAND_TALKNUMWORK>(m_PBaseEntity, messageID, param0, param1, param2, param3, showName);
 }
 
 /************************************************************************
@@ -557,7 +555,7 @@ void CLuaBaseEntity::messageSystem(MsgStd messageID, sol::object const& p0, sol:
     uint32 param0 = (p0 != sol::lua_nil) ? p0.as<uint32>() : 0;
     uint32 param1 = (p1 != sol::lua_nil) ? p1.as<uint32>() : 0;
 
-    static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<CMessageSystemPacket>(param0, param1, messageID);
+    static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<GP_SERV_COMMAND_SYSTEMMES>(param0, param1, messageID);
 }
 
 /************************************************************************
@@ -587,7 +585,7 @@ void CLuaBaseEntity::messageCombat(sol::object const& speaker, int32 p0, int32 p
         PSpeaker = m_PBaseEntity;
     }
 
-    PChar->pushPacket<CMessageCombatPacket>(PSpeaker, PChar, p0, p1, message);
+    PChar->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE2>(PSpeaker, PChar, p0, p1, message);
 }
 
 /************************************************************************
@@ -601,7 +599,7 @@ void CLuaBaseEntity::messageStandard(uint16 messageID)
 {
     if (auto* PChar = dynamic_cast<CCharEntity*>(m_PBaseEntity))
     {
-        PChar->pushPacket<CMessageStandardPacket>(messageID);
+        PChar->pushPacket<GP_SERV_COMMAND_MESSAGE>(messageID);
     }
 }
 
@@ -611,7 +609,7 @@ void CLuaBaseEntity::customMenu(sol::object const& obj)
         PChar && obj.get_type() == sol::type::table)
     {
         auto menuString = luautils::SetCustomMenuContext(PChar, obj.as<sol::table>());
-        PChar->pushPacket<CChatMessagePacket>(PChar, MESSAGE_GMPROMPT, menuString.c_str(), "_CUSTOM_MENU");
+        PChar->pushPacket<GP_SERV_COMMAND_CHAT_STD>(PChar, MESSAGE_GMPROMPT, menuString.c_str(), "_CUSTOM_MENU");
     }
 }
 
@@ -1338,7 +1336,7 @@ void CLuaBaseEntity::release()
     {
         // Message: Event skipped
         releaseType = GP_SERV_COMMAND_EVENTUCOFF_MODE::CancelEvent;
-        PChar->pushPacket<CMessageSystemPacket>(0, 0, MsgStd::EventSkipped);
+        PChar->pushPacket<GP_SERV_COMMAND_SYSTEMMES>(0, 0, MsgStd::EventSkipped);
     }
 
     PChar->inSequence = false;
@@ -2496,7 +2494,7 @@ void CLuaBaseEntity::sendMenu(uint32 menu)
             PChar->pushPacket<GP_SERV_COMMAND_SHOP_LIST>(PChar);
             break;
         case 3:
-            PChar->pushPacket<CAuctionHousePacket>(GP_CLI_COMMAND_AUC_COMMAND::Open);
+            PChar->pushPacket<GP_SERV_COMMAND_AUC>(GP_CLI_COMMAND_AUC_COMMAND::Open);
             break;
         default:
             ShowDebug("Menu %i not implemented, yet.", menu);
@@ -2859,6 +2857,25 @@ uint16 CLuaBaseEntity::getPreviousZone()
 }
 
 /************************************************************************
+ *  Function: getPreviousZoneLineID()
+ *  Purpose : Returns the integer ID of the last zoneline the PC visited
+ *  Example : local prevZonelineID = player:getPreviousZoneLineID()
+ *  Notes   : Mainly used for moghouse exits
+ ************************************************************************/
+
+uint32 CLuaBaseEntity::getPreviousZoneLineID()
+{
+    if (m_PBaseEntity->objtype != TYPE_PC)
+    {
+        ShowWarning("Invalid entity type calling function (%s).", m_PBaseEntity->getName());
+        return 0;
+    }
+
+    auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
+    return PChar->m_PrevZonelineID;
+}
+
+/************************************************************************
  *  Function: getCurrentRegion()
  *  Purpose : Returns the integer value of the PC's region
  *  Example : local region = target:getCurrentRegion()
@@ -3081,7 +3098,7 @@ void CLuaBaseEntity::showPosition()
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    PChar->pushPacket<CMessageStandardPacket>((int32)PChar->loc.p.x, (int32)PChar->loc.p.y, (int32)PChar->loc.p.z, PChar->loc.p.rotation, MsgStd::Compass);
+    PChar->pushPacket<GP_SERV_COMMAND_MESSAGE>((int32)PChar->loc.p.x, (int32)PChar->loc.p.y, (int32)PChar->loc.p.z, PChar->loc.p.rotation, MsgStd::Compass);
 }
 
 /************************************************************************
@@ -3163,7 +3180,7 @@ void CLuaBaseEntity::positionSpecial(std::map<std::string, float> pos, POSMODE m
         static_cast<uint8>(pos["rot"]),
     };
 
-    m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE_SELF, std::make_unique<CPositionPacket>(m_PBaseEntity, newPos, mode));
+    m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_WPOS>(m_PBaseEntity, newPos, mode));
 }
 
 /************************************************************************
@@ -3248,7 +3265,7 @@ void CLuaBaseEntity::setPos(sol::variadic_args va)
             if (ipp == 0)
             {
                 ShowWarning(fmt::format("Char {} requested zone ({}) returned IPP of 0", PChar->name, zoneid));
-                PChar->pushPacket<CMessageSystemPacket>(0, 0, MsgStd::CouldNotEnter); // You could not enter the next area.
+                PChar->pushPacket<GP_SERV_COMMAND_SYSTEMMES>(0, 0, MsgStd::CouldNotEnter); // You could not enter the next area.
                 return;
             }
 
@@ -3258,15 +3275,15 @@ void CLuaBaseEntity::setPos(sol::variadic_args va)
             PChar->m_moghouseID        = 0;
             PChar->requestedZoneChange = true;
 
-            // Edge case for !zone and cutscenes teleporting you
-            if (PChar->PPet)
+            // Save pet if any
+            if (PChar->shouldPetPersistThroughZoning())
             {
                 PChar->setPetZoningInfo();
             }
         }
         else if (PChar->status != STATUS_TYPE::DISAPPEAR)
         {
-            PChar->pushPacket<CPositionPacket>(PChar, PChar->loc.p);
+            PChar->pushPacket<GP_SERV_COMMAND_WPOS>(PChar, PChar->loc.p);
         }
     }
     m_PBaseEntity->updatemask |= UPDATE_POS;
@@ -3289,6 +3306,12 @@ void CLuaBaseEntity::warp()
     if (auto* PChar = dynamic_cast<CCharEntity*>(m_PBaseEntity))
     {
         PChar->requestedWarp = true;
+
+        // Save pet if any
+        if (PChar->shouldPetPersistThroughZoning())
+        {
+            PChar->setPetZoningInfo();
+        }
     }
 }
 
@@ -3319,7 +3342,7 @@ void CLuaBaseEntity::teleport(std::map<std::string, float> pos, sol::object cons
         newPos.rotation                = worldAngle(m_PBaseEntity->loc.p, PLuaBaseEntity->GetBaseEntity()->loc.p);
     }
 
-    m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE_SELF, std::make_unique<CPositionPacket>(m_PBaseEntity, newPos));
+    m_PBaseEntity->loc.zone->PushPacket(m_PBaseEntity, CHAR_INRANGE_SELF, std::make_unique<GP_SERV_COMMAND_WPOS>(m_PBaseEntity, newPos));
     m_PBaseEntity->updatemask |= UPDATE_POS;
 }
 
@@ -5125,7 +5148,7 @@ void CLuaBaseEntity::setEquipBlock(uint16 equipBlock)
     {
         auto* PChar         = static_cast<CCharEntity*>(m_PBaseEntity);
         PChar->m_EquipBlock = equipBlock;
-        PChar->pushPacket<CCharJobsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
     }
 }
 
@@ -5157,7 +5180,7 @@ void CLuaBaseEntity::lockEquipSlot(uint8 slot)
     PChar->m_EquipBlock |= 1 << slot;
     PChar->pushPacket<GP_SERV_COMMAND_GRAP_LIST>(PChar);
     PChar->pushPacket<GP_SERV_COMMAND_EQUIP_LIST>(0, static_cast<SLOTTYPE>(slot), LOC_INVENTORY);
-    PChar->pushPacket<CCharJobsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
     PChar->updatemask |= UPDATE_LOOK;
 }
 
@@ -5185,7 +5208,7 @@ void CLuaBaseEntity::unlockEquipSlot(uint8 slot)
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->m_EquipBlock &= ~(1 << slot);
-    PChar->pushPacket<CCharJobsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
 }
 
 /************************************************************************
@@ -6628,15 +6651,15 @@ void CLuaBaseEntity::changeJob(uint8 newJob)
         charutils::SaveCharExp(PChar, PChar->GetMJob());
         PChar->updatemask |= UPDATE_HP;
 
-        PChar->pushPacket<CCharJobsPacket>(PChar);
-        PChar->pushPacket<CCharStatsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-        PChar->pushPacket<CCharRecastPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
         PChar->pushPacket<CCharStatusPacket>(PChar);
-        PChar->pushPacket<CMenuMeritPacket>(PChar);
-        PChar->pushPacket<CMonipulatorPacket1>(PChar);
-        PChar->pushPacket<CMonipulatorPacket2>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MERITS>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY1>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY2>(PChar);
         PChar->pushPacket<CCharSyncPacket>(PChar);
     }
     else if (auto* PMob = dynamic_cast<CMobEntity*>(m_PBaseEntity))
@@ -6782,7 +6805,7 @@ void CLuaBaseEntity::unlockJob(uint8 JobID)
         }
 
         charutils::SaveCharJob(PChar, static_cast<JOBTYPE>(JobID));
-        PChar->pushPacket<CCharJobsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
     }
 }
 
@@ -6907,15 +6930,15 @@ void CLuaBaseEntity::setLevel(uint8 level)
         charutils::SaveCharExp(PChar, PChar->GetMJob());
         PChar->updatemask |= UPDATE_HP;
 
-        PChar->pushPacket<CCharJobsPacket>(PChar);
-        PChar->pushPacket<CCharStatsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-        PChar->pushPacket<CCharRecastPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
         PChar->pushPacket<CCharStatusPacket>(PChar);
-        PChar->pushPacket<CMenuMeritPacket>(PChar);
-        PChar->pushPacket<CMonipulatorPacket1>(PChar);
-        PChar->pushPacket<CMonipulatorPacket2>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MERITS>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY1>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY2>(PChar);
         PChar->pushPacket<CCharSyncPacket>(PChar);
     }
 }
@@ -6964,15 +6987,15 @@ void CLuaBaseEntity::setsLevel(uint8 slevel)
     charutils::SaveCharJob(PChar, PChar->GetSJob());
     charutils::SaveCharExp(PChar, PChar->GetMJob());
 
-    PChar->pushPacket<CCharJobsPacket>(PChar);
-    PChar->pushPacket<CCharStatsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
     PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-    PChar->pushPacket<CCharRecastPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
     PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
     PChar->pushPacket<CCharStatusPacket>(PChar);
-    PChar->pushPacket<CMenuMeritPacket>(PChar);
-    PChar->pushPacket<CMonipulatorPacket1>(PChar);
-    PChar->pushPacket<CMonipulatorPacket2>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MERITS>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY1>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY2>(PChar);
     PChar->pushPacket<CCharSyncPacket>(PChar);
 }
 
@@ -7077,10 +7100,10 @@ uint8 CLuaBaseEntity::levelRestriction(sol::object const& level)
 
             if (PChar->status != STATUS_TYPE::DISAPPEAR)
             {
-                PChar->pushPacket<CCharJobsPacket>(PChar);
-                PChar->pushPacket<CCharStatsPacket>(PChar);
+                PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
+                PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
                 PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-                PChar->pushPacket<CCharRecastPacket>(PChar);
+                PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
                 PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
                 PChar->pushPacket<GP_SERV_COMMAND_MAGIC_DATA>(PChar);
                 PChar->pushPacket<CCharStatusPacket>(PChar);
@@ -7131,7 +7154,7 @@ uint8 CLuaBaseEntity::levelRestriction(sol::object const& level)
                                 resetRecast(RECAST_ABILITY, 205);
                             }
 
-                            PChar->pushPacket<CMessageBasicPacket>(PChar, PChar, 0, 0, MSGBASIC_AUTO_EXCEEDS_CAPACITY);
+                            PChar->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(PChar, PChar, 0, 0, MSGBASIC_AUTO_EXCEEDS_CAPACITY);
                             petutils::DespawnPet(PChar);
                             return PChar->m_LevelRestriction;
                         }
@@ -7166,18 +7189,23 @@ uint8 CLuaBaseEntity::levelRestriction(sol::object const& level)
 }
 
 /************************************************************************
- *  Function: addJobTraits
- *  Purpose : Add job traits
- *  Example : player:addJobTraits(xi.job.WHM, 75)
+ *  Function: addWyvernJobTraits
+ *  Purpose : Add job traits to dragoon wyvern pet
+ *  Example : wyvern:addWyvernJobTraits(xi.job.SAM, 49)
  ************************************************************************/
 
-void CLuaBaseEntity::addJobTraits(uint8 jobID, uint8 level)
+void CLuaBaseEntity::addWyvernJobTraits(uint8 jobID, uint8 level)
 {
-    auto* PEntity = dynamic_cast<CBattleEntity*>(m_PBaseEntity);
+    auto* PPet = dynamic_cast<CPetEntity*>(m_PBaseEntity);
 
-    if (PEntity != nullptr)
+    // Under no circumstances should this be called for anything but a dragoon pet wyvern
+    if (PPet && PPet->getPetType() == PET_TYPE::WYVERN)
     {
-        battleutils::AddTraits(PEntity, traits::GetTraits(jobID), level);
+        battleutils::AddTraits(PPet, traits::GetTraits(jobID), level);
+    }
+    else
+    {
+        ShowWarning("Invalid entity type calling addWyvernJobTraits (%s).", m_PBaseEntity->getName());
     }
 }
 
@@ -7363,7 +7391,7 @@ void CLuaBaseEntity::addTitle(uint16 titleID)
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->profile.title = titleID;
-    PChar->pushPacket<CCharStatsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
 
     charutils::addTitle(PChar, titleID);
     charutils::SaveTitles(PChar);
@@ -7410,7 +7438,7 @@ void CLuaBaseEntity::delTitle(uint16 titleID)
             PChar->profile.title = 0;
         }
 
-        PChar->pushPacket<CCharStatsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
         charutils::SaveTitles(PChar);
     }
 }
@@ -7780,7 +7808,7 @@ void CLuaBaseEntity::setRankPoints(uint16 rankPoints)
  *  Example : player:addQuest(xi.quest.log_id.BASTOK, xi.quest.id.bastok.LURE_OF_THE_WILDCAT)
  ************************************************************************/
 
-void CLuaBaseEntity::addQuest(uint8 questLogID, uint16 questID)
+void CLuaBaseEntity::addQuest(QuestLog logId, const uint16 questId) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -7790,21 +7818,20 @@ void CLuaBaseEntity::addQuest(uint8 questLogID, uint16 questID)
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    if (questLogID < MAX_QUESTAREA && questID < MAX_QUESTID)
+    if (static_cast<uint8_t>(logId) < MAX_QUESTAREA && questId < MAX_QUESTID)
     {
-        uint8 current = PChar->m_questLog[questLogID].current[questID / 8] & (1 << (questID % 8));
+        uint8 current = PChar->m_questLog[static_cast<uint8_t>(logId)].current[questId / 8] & (1 << (questId % 8));
 
         if (current == 0)
         {
-            PChar->m_questLog[questLogID].current[questID / 8] |= (1 << (questID % 8));
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_CURRENT);
-
+            PChar->m_questLog[static_cast<uint8_t>(logId)].current[questId / 8] |= (1 << (questId % 8));
+            charutils::SendPartialQuestLog(PChar, logId, false);
             charutils::SaveQuestsList(PChar);
         }
     }
     else
     {
-        ShowError("Lua::addQuest: questLogID %i or QuestID %i is invalid", questLogID, questID);
+        ShowError("Lua::addQuest: questLogID %i or QuestID %i is invalid", static_cast<uint8_t>(logId), questId);
     }
 }
 
@@ -7814,7 +7841,7 @@ void CLuaBaseEntity::addQuest(uint8 questLogID, uint16 questID)
  *  Notes   : This duplicates delQuest with the above exception
  ************************************************************************/
 
-void CLuaBaseEntity::delCurrentQuest(uint8 questLogID, uint16 questID)
+void CLuaBaseEntity::delCurrentQuest(QuestLog logId, const uint16 questID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -7824,23 +7851,21 @@ void CLuaBaseEntity::delCurrentQuest(uint8 questLogID, uint16 questID)
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    if (questLogID < MAX_QUESTAREA && questID < MAX_QUESTID)
+    if (static_cast<uint8_t>(logId) < MAX_QUESTAREA && questID < MAX_QUESTID)
     {
-        uint8 current = PChar->m_questLog[questLogID].current[questID / 8] & (1 << (questID % 8));
+        const uint8 current = PChar->m_questLog[static_cast<uint8_t>(logId)].current[questID / 8] & (1 << (questID % 8));
 
         if (current != 0)
         {
-            PChar->m_questLog[questLogID].current[questID / 8] &= ~(1 << (questID % 8));
-
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_CURRENT);
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_COMPLETE);
-
+            PChar->m_questLog[static_cast<uint8_t>(logId)].current[questID / 8] &= ~(1 << (questID % 8));
+            charutils::SendPartialQuestLog(PChar, logId, false);
+            charutils::SendPartialQuestLog(PChar, logId, true);
             charutils::SaveQuestsList(PChar);
         }
     }
     else
     {
-        ShowError("Lua::delCurrentQuest: questLogID %i or QuestID %i is invalid", questLogID, questID);
+        ShowError("Lua::delCurrentQuest: questLogID %i or QuestID %i is invalid", static_cast<uint8_t>(logId), questID);
     }
 }
 
@@ -7851,7 +7876,7 @@ void CLuaBaseEntity::delCurrentQuest(uint8 questLogID, uint16 questID)
  *  Notes   : Doesn't delete any player variables associated with quest
  ************************************************************************/
 
-void CLuaBaseEntity::delQuest(uint8 questLogID, uint16 questID)
+void CLuaBaseEntity::delQuest(QuestLog logId, uint16 questID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -7861,25 +7886,23 @@ void CLuaBaseEntity::delQuest(uint8 questLogID, uint16 questID)
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    if (questLogID < MAX_QUESTAREA && questID < MAX_QUESTID)
+    if (static_cast<uint8_t>(logId) < MAX_QUESTAREA && questID < MAX_QUESTID)
     {
-        uint8 current  = PChar->m_questLog[questLogID].current[questID / 8] & (1 << (questID % 8));
-        uint8 complete = PChar->m_questLog[questLogID].complete[questID / 8] & (1 << (questID % 8));
+        uint8 current  = PChar->m_questLog[static_cast<uint8_t>(logId)].current[questID / 8] & (1 << (questID % 8));
+        uint8 complete = PChar->m_questLog[static_cast<uint8_t>(logId)].complete[questID / 8] & (1 << (questID % 8));
 
         if ((current != 0) || (complete != 0))
         {
-            PChar->m_questLog[questLogID].current[questID / 8] &= ~(1 << (questID % 8));
-            PChar->m_questLog[questLogID].complete[questID / 8] &= ~(1 << (questID % 8));
-
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_CURRENT);
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_COMPLETE);
-
+            PChar->m_questLog[static_cast<uint8_t>(logId)].current[questID / 8] &= ~(1 << (questID % 8));
+            PChar->m_questLog[static_cast<uint8_t>(logId)].complete[questID / 8] &= ~(1 << (questID % 8));
+            charutils::SendPartialQuestLog(PChar, logId, false);
+            charutils::SendPartialQuestLog(PChar, logId, true);
             charutils::SaveQuestsList(PChar);
         }
     }
     else
     {
-        ShowError("Lua::delQuest: questLogID %i or QuestID %i is invalid", questLogID, questID);
+        ShowError("Lua::delQuest: questLogID %i or QuestID %i is invalid", static_cast<uint8_t>(logId), questID);
     }
 }
 
@@ -7889,7 +7912,7 @@ void CLuaBaseEntity::delQuest(uint8 questLogID, uint16 questID)
  *  Example : player:getQuestStatus(xi.quest.log_id.WINDURST, xi.quest.id.windurst.MAKING_THE_GRADE)
  ************************************************************************/
 
-uint8 CLuaBaseEntity::getQuestStatus(uint8 questLogID, uint16 questID)
+uint8 CLuaBaseEntity::getQuestStatus(QuestLog logId, uint16 questID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -7897,17 +7920,17 @@ uint8 CLuaBaseEntity::getQuestStatus(uint8 questLogID, uint16 questID)
         return 0;
     }
 
-    if (questLogID < MAX_QUESTAREA && questID < MAX_QUESTID)
+    if (static_cast<uint8_t>(logId) < MAX_QUESTAREA && questID < MAX_QUESTID)
     {
-        auto* PChar    = static_cast<CCharEntity*>(m_PBaseEntity);
-        uint8 current  = PChar->m_questLog[questLogID].current[questID / 8] & (1 << (questID % 8));
-        uint8 complete = PChar->m_questLog[questLogID].complete[questID / 8] & (1 << (questID % 8));
+        const auto* PChar    = static_cast<CCharEntity*>(m_PBaseEntity);
+        const uint8 current  = PChar->m_questLog[static_cast<uint8_t>(logId)].current[questID / 8] & (1 << (questID % 8));
+        const uint8 complete = PChar->m_questLog[static_cast<uint8_t>(logId)].complete[questID / 8] & (1 << (questID % 8));
 
         return (complete != 0 ? 2 : (current != 0 ? 1 : 0));
     }
     else
     {
-        ShowError("Lua::getQuestStatus: questLogID %i or QuestID %i is invalid", questLogID, questID);
+        ShowError("Lua::getQuestStatus: questLogID %i or QuestID %i is invalid", static_cast<uint8_t>(logId), questID);
         return 0;
     }
 }
@@ -7918,7 +7941,7 @@ uint8 CLuaBaseEntity::getQuestStatus(uint8 questLogID, uint16 questID)
  *  Example : if (player:hasCompletedQuest(xi.quest.log_id.JEUNO, xi.quest.id.jeuno.BEYOND_INFINITY)) then
  ************************************************************************/
 
-bool CLuaBaseEntity::hasCompletedQuest(uint8 questLogID, uint16 questID)
+bool CLuaBaseEntity::hasCompletedQuest(QuestLog logId, uint16 questID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -7926,14 +7949,14 @@ bool CLuaBaseEntity::hasCompletedQuest(uint8 questLogID, uint16 questID)
         return false;
     }
 
-    if (questLogID < MAX_QUESTAREA && questID < MAX_QUESTID)
+    if (static_cast<uint8_t>(logId) < MAX_QUESTAREA && questID < MAX_QUESTID)
     {
-        uint8 complete = static_cast<CCharEntity*>(m_PBaseEntity)->m_questLog[questLogID].complete[questID / 8] & (1 << (questID % 8));
+        const uint8 complete = static_cast<CCharEntity*>(m_PBaseEntity)->m_questLog[static_cast<uint8_t>(logId)].complete[questID / 8] & (1 << (questID % 8));
 
         return complete != 0;
     }
 
-    ShowError("Lua::hasCompletedQuest: questLogID %i or QuestID %i is invalid", questLogID, questID);
+    ShowError("Lua::hasCompletedQuest: questLogID %i or QuestID %i is invalid", static_cast<uint8_t>(logId), questID);
     return false;
 }
 
@@ -7944,7 +7967,7 @@ bool CLuaBaseEntity::hasCompletedQuest(uint8 questLogID, uint16 questID)
  *  Notes   :
  ************************************************************************/
 
-void CLuaBaseEntity::completeQuest(uint8 questLogID, uint16 questID)
+void CLuaBaseEntity::completeQuest(QuestLog logId, uint16 questID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -7954,24 +7977,23 @@ void CLuaBaseEntity::completeQuest(uint8 questLogID, uint16 questID)
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    if (questLogID < MAX_QUESTAREA && questID < MAX_QUESTID)
+    if (static_cast<uint8_t>(logId) < MAX_QUESTAREA && questID < MAX_QUESTID)
     {
-        uint8 complete = PChar->m_questLog[questLogID].complete[questID / 8] & (1 << (questID % 8));
+        uint8 complete = PChar->m_questLog[static_cast<uint8_t>(logId)].complete[questID / 8] & (1 << (questID % 8));
 
         if (!complete)
         {
-            PChar->m_questLog[questLogID].current[questID / 8] &= ~(1 << (questID % 8));
-            PChar->m_questLog[questLogID].complete[questID / 8] |= (1 << (questID % 8));
-
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_CURRENT);
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, questLogID, LOG_QUEST_COMPLETE);
+            PChar->m_questLog[static_cast<uint8_t>(logId)].current[questID / 8] &= ~(1 << (questID % 8));
+            PChar->m_questLog[static_cast<uint8_t>(logId)].complete[questID / 8] |= (1 << (questID % 8));
+            charutils::SendPartialQuestLog(PChar, logId, false);
+            charutils::SendPartialQuestLog(PChar, logId, true);
             charutils::SaveQuestsList(PChar);
             roeutils::event(ROE_QUEST_COMPLETE, PChar, RoeDatagramList{});
         }
     }
     else
     {
-        ShowError("Lua::completeQuest: questLogID %i or QuestID %i is invalid", questLogID, questID);
+        ShowError("Lua::completeQuest: questLogID %i or QuestID %i is invalid", static_cast<uint8_t>(logId), questID);
     }
 }
 
@@ -7982,30 +8004,29 @@ void CLuaBaseEntity::completeQuest(uint8 questLogID, uint16 questID)
  *  Notes   : This function no longer accepts tables!
  ************************************************************************/
 
-void CLuaBaseEntity::addMission(uint8 missionLogID, uint16 missionID)
+void CLuaBaseEntity::addMission(MissionLog logId, uint16 missionID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
         return;
     }
 
-    if (missionLogID < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
+    if (static_cast<uint8_t>(logId) < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
     {
         auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-        if (PChar->m_missionLog[missionLogID].current != (missionLogID > 2 ? 0 : std::numeric_limits<uint16>::max()))
+        if (PChar->m_missionLog[static_cast<uint8_t>(logId)].current != (static_cast<uint8_t>(logId) > 2 ? 0 : std::numeric_limits<uint16>::max()))
         {
-            ShowWarning("Lua::addMission: player has a current mission (%d)", missionLogID);
+            ShowWarning("Lua::addMission: player has a current mission (%d)", static_cast<uint8_t>(logId));
         }
 
-        PChar->m_missionLog[missionLogID].current = missionID;
-        PChar->pushPacket<CQuestMissionLogPacket>(PChar, missionLogID, LOG_MISSION_CURRENT);
-
+        PChar->m_missionLog[static_cast<uint8_t>(logId)].current = missionID;
+        charutils::SendPartialMissionLog(PChar, logId, false);
         charutils::SaveMissionsList(PChar);
     }
     else
     {
-        ShowError("Lua::addMission: missionLogID %i or Mission %i is invalid", missionLogID, missionID);
+        ShowError("Lua::addMission: missionLogID %i or Mission %i is invalid", static_cast<uint8_t>(logId), missionID);
     }
 }
 
@@ -8017,7 +8038,7 @@ void CLuaBaseEntity::addMission(uint8 missionLogID, uint16 missionID)
  *          : This function no longer accepts tables!
  ************************************************************************/
 
-void CLuaBaseEntity::delMission(uint8 missionLogID, uint16 missionID)
+void CLuaBaseEntity::delMission(MissionLog logId, uint16 missionID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8025,28 +8046,28 @@ void CLuaBaseEntity::delMission(uint8 missionLogID, uint16 missionID)
         return;
     }
 
-    if (missionLogID < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
+    if (static_cast<uint8_t>(logId) < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
     {
         auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-        uint16 current  = PChar->m_missionLog[missionLogID].current;
-        bool   complete = (missionLogID == MISSION_COP || missionID >= 64) ? false : PChar->m_missionLog[missionLogID].complete[missionID];
+        const uint16 current  = PChar->m_missionLog[static_cast<uint8_t>(logId)].current;
+        const bool   complete = (logId == MissionLog::CoP || missionID >= 64) ? false : PChar->m_missionLog[static_cast<uint8_t>(logId)].complete[missionID];
 
         if (current == missionID)
         {
-            PChar->m_missionLog[missionLogID].current = missionLogID > 2 ? 0 : -1;
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, missionLogID, LOG_MISSION_CURRENT);
+            PChar->m_missionLog[static_cast<uint8_t>(logId)].current = static_cast<uint8_t>(logId) > 2 ? 0 : -1;
+            charutils::SendPartialMissionLog(PChar, logId, false);
         }
         if (complete)
         {
-            PChar->m_missionLog[missionLogID].complete[missionID] = false;
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, missionLogID, LOG_MISSION_COMPLETE);
+            PChar->m_missionLog[static_cast<uint8_t>(logId)].complete[missionID] = false;
+            charutils::SendPartialMissionLog(PChar, logId, true);
         }
         charutils::SaveMissionsList(PChar);
     }
     else
     {
-        ShowError("Lua::delMission: missionLogID %i or Mission %i is invalid", missionLogID, missionID);
+        ShowError("Lua::delMission: missionLogID %i or Mission %i is invalid", static_cast<uint8_t>(logId), missionID);
     }
 }
 
@@ -8057,7 +8078,7 @@ void CLuaBaseEntity::delMission(uint8 missionLogID, uint16 missionID)
  *  Notes   : Specify the area to pass a Lua table object
  ************************************************************************/
 
-uint16 CLuaBaseEntity::getCurrentMission(sol::object const& missionLogObj)
+uint16 CLuaBaseEntity::getCurrentMission(sol::object const& missionLogObj) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8102,7 +8123,7 @@ uint16 CLuaBaseEntity::getCurrentMission(sol::object const& missionLogObj)
  *  Notes   :
  ************************************************************************/
 
-bool CLuaBaseEntity::hasCompletedMission(uint8 missionLogID, uint16 missionID)
+bool CLuaBaseEntity::hasCompletedMission(MissionLog logId, const uint16 missionID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8112,15 +8133,15 @@ bool CLuaBaseEntity::hasCompletedMission(uint8 missionLogID, uint16 missionID)
 
     bool complete = false;
 
-    if (missionLogID < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
+    if (static_cast<uint8_t>(logId) < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
     {
-        auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
-        complete    = (missionLogID == MISSION_COP || missionID >= 64) ? missionID < PChar->m_missionLog[missionLogID].current
-                                                                       : PChar->m_missionLog[missionLogID].complete[missionID];
+        const auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
+        complete          = (logId == MissionLog::CoP || missionID >= 64) ? missionID < PChar->m_missionLog[static_cast<uint8_t>(logId)].current
+                                                                          : PChar->m_missionLog[static_cast<uint8_t>(logId)].complete[missionID];
     }
     else
     {
-        ShowError("Lua::hasCompletedMission: missionLogID %i or Mission %i is invalid", missionLogID, missionID);
+        ShowError("Lua::hasCompletedMission: missionLogID %i or Mission %i is invalid", static_cast<uint8_t>(logId), missionID);
     }
 
     return complete;
@@ -8133,7 +8154,7 @@ bool CLuaBaseEntity::hasCompletedMission(uint8 missionLogID, uint16 missionID)
  *  Notes   :
  ************************************************************************/
 
-void CLuaBaseEntity::completeMission(uint8 missionLogID, uint16 missionID)
+void CLuaBaseEntity::completeMission(MissionLog logId, const uint16 missionID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8141,31 +8162,31 @@ void CLuaBaseEntity::completeMission(uint8 missionLogID, uint16 missionID)
         return;
     }
 
-    if (missionLogID < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
+    if (static_cast<uint8_t>(logId) < MAX_MISSIONAREA && missionID < MAX_MISSIONID)
     {
         auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-        if (PChar->m_missionLog[missionLogID].current != missionID)
+        if (PChar->m_missionLog[static_cast<uint8_t>(logId)].current != missionID)
         {
-            ShowWarning("Lua::completeMission: can't complete non current mission", missionLogID);
+            ShowWarning("Lua::completeMission: can't complete non current mission", static_cast<uint8_t>(logId));
         }
         else
         {
-            PChar->m_missionLog[missionLogID].current = missionLogID > 2 ? 0 : std::numeric_limits<uint16>::max();
-            if ((missionLogID != MISSION_COP) && (missionID < 64))
+            PChar->m_missionLog[static_cast<uint8_t>(logId)].current = static_cast<uint8_t>(logId) > 2 ? 0 : std::numeric_limits<uint16>::max();
+            if (logId != MissionLog::CoP && (missionID < 64))
             {
-                PChar->m_missionLog[missionLogID].complete[missionID] = true;
-                PChar->pushPacket<CQuestMissionLogPacket>(PChar, missionLogID, LOG_MISSION_COMPLETE);
+                PChar->m_missionLog[static_cast<uint8_t>(logId)].complete[missionID] = true;
+                charutils::SendPartialMissionLog(PChar, logId, true);
             }
-            PChar->pushPacket<CQuestMissionLogPacket>(PChar, missionLogID, LOG_MISSION_CURRENT);
 
+            charutils::SendPartialMissionLog(PChar, logId, false);
             charutils::SaveMissionsList(PChar);
             roeutils::event(ROE_MISSION_COMPLETE, PChar, RoeDatagramList{});
         }
     }
     else
     {
-        ShowError("Lua::completeMission: missionLogID %i or Mission %i is invalid", missionLogID, missionID);
+        ShowError("Lua::completeMission: missionLogID %i or Mission %i is invalid", static_cast<uint8_t>(logId), missionID);
     }
 }
 
@@ -8177,7 +8198,7 @@ void CLuaBaseEntity::completeMission(uint8 missionLogID, uint16 missionID)
  *            If optional index is used, value must be between 0-15.
  ************************************************************************/
 
-void CLuaBaseEntity::setMissionStatus(uint8 missionLogID, sol::object const& arg2Obj, sol::object const& arg3Obj)
+void CLuaBaseEntity::setMissionStatus(MissionLog logId, sol::object const& arg2Obj, sol::object const& arg3Obj) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8185,42 +8206,42 @@ void CLuaBaseEntity::setMissionStatus(uint8 missionLogID, sol::object const& arg
         return;
     }
 
-    CCharEntity* PChar = (CCharEntity*)m_PBaseEntity;
+    auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    if (missionLogID >= MAX_MISSIONAREA)
+    if (static_cast<uint8_t>(logId) >= MAX_MISSIONAREA)
     {
-        ShowError("Lua::setMissionStatus: missionLogID %i is invalid", missionLogID);
+        ShowError("Lua::setMissionStatus: missionLogID %i is invalid", static_cast<uint8_t>(logId));
         return;
     }
 
     if (arg3Obj.is<uint8>())
     {
-        uint8 missionStatusPos = arg3Obj.as<uint8>();
+        const uint8 missionStatusPos = arg3Obj.as<uint8>();
         if (missionStatusPos > 7)
         {
             ShowError("Lua::setMissionStatus: position %i is invalid", missionStatusPos);
             return;
         }
-        uint8 missionStatusValue = arg2Obj.as<uint8>();
+        const uint8 missionStatusValue = arg2Obj.as<uint8>();
         if (missionStatusValue > 0xF)
         {
             ShowError("Lua::setMissionStatus: value %i is invalid", missionStatusValue);
             return;
         }
-        uint32 missionStatus = (PChar->m_missionLog[missionLogID].statusUpper << 16) | PChar->m_missionLog[missionLogID].statusLower;
-        uint32 mask          = ~(0xF << (4 * missionStatusPos));
+        uint32       missionStatus = (PChar->m_missionLog[static_cast<uint8_t>(logId)].statusUpper << 16) | PChar->m_missionLog[static_cast<uint8_t>(logId)].statusLower;
+        const uint32 mask          = ~(0xF << (4 * missionStatusPos));
 
         missionStatus &= mask;
         missionStatus |= missionStatusValue << (4 * missionStatusPos);
-        PChar->m_missionLog[missionLogID].statusLower = missionStatus;
-        PChar->m_missionLog[missionLogID].statusUpper = missionStatus >> 16;
-        PChar->pushPacket<CQuestMissionLogPacket>(PChar, missionLogID, LOG_MISSION_CURRENT);
+        PChar->m_missionLog[static_cast<uint8_t>(logId)].statusLower = missionStatus;
+        PChar->m_missionLog[static_cast<uint8_t>(logId)].statusUpper = missionStatus >> 16;
+        charutils::SendPartialMissionLog(PChar, logId, false);
     }
     else
     {
-        uint32 missionStatusValue                     = arg2Obj.as<uint32>();
-        PChar->m_missionLog[missionLogID].statusLower = missionStatusValue;
-        PChar->m_missionLog[missionLogID].statusUpper = missionStatusValue >> 16;
+        const uint32 missionStatusValue                              = arg2Obj.as<uint32>();
+        PChar->m_missionLog[static_cast<uint8_t>(logId)].statusLower = missionStatusValue;
+        PChar->m_missionLog[static_cast<uint8_t>(logId)].statusUpper = missionStatusValue >> 16;
     }
 
     charutils::SaveMissionsList(PChar);
@@ -8233,7 +8254,7 @@ void CLuaBaseEntity::setMissionStatus(uint8 missionLogID, sol::object const& arg
  *  Notes   : getMissionStatus(log id[,index 0-7])
  ************************************************************************/
 
-uint32 CLuaBaseEntity::getMissionStatus(uint8 missionLogID, sol::object const& missionStatusPosObj)
+uint32 CLuaBaseEntity::getMissionStatus(MissionLog logId, sol::object const& missionStatusPosObj) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8241,10 +8262,10 @@ uint32 CLuaBaseEntity::getMissionStatus(uint8 missionLogID, sol::object const& m
         return 0;
     }
 
-    CCharEntity* PChar = (CCharEntity*)m_PBaseEntity;
-    if (missionLogID < MAX_MISSIONAREA)
+    const auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
+    if (static_cast<uint8_t>(logId) < MAX_MISSIONAREA)
     {
-        uint32 missionStatus = (PChar->m_missionLog[missionLogID].statusUpper << 16) | PChar->m_missionLog[missionLogID].statusLower;
+        uint32 missionStatus = (PChar->m_missionLog[static_cast<uint8_t>(logId)].statusUpper << 16) | PChar->m_missionLog[static_cast<uint8_t>(logId)].statusLower;
         if (missionStatusPosObj.is<uint8>())
         {
             uint8 missionStatusPos = missionStatusPosObj.as<uint8>();
@@ -8261,7 +8282,7 @@ uint32 CLuaBaseEntity::getMissionStatus(uint8 missionLogID, sol::object const& m
         }
     }
 
-    ShowError("Lua::getMissionStatus: missionLogID %i is invalid", missionLogID);
+    ShowError("Lua::getMissionStatus: missionLogID %i is invalid", static_cast<uint8_t>(logId));
     return 0;
 }
 
@@ -8362,8 +8383,8 @@ bool CLuaBaseEntity::setEminenceProgress(uint16 recordID, uint32 progress, sol::
 
     if (total && progressNotify)
     {
-        PChar->pushPacket<CMessageBasicPacket>(PChar, PChar, recordID, 0, MSGBASIC_ROE_RECORD);
-        PChar->pushPacket<CMessageBasicPacket>(PChar, PChar, progress, total, MSGBASIC_ROE_PROGRESS);
+        PChar->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(PChar, PChar, recordID, 0, MSGBASIC_ROE_RECORD);
+        PChar->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(PChar, PChar, progress, total, MSGBASIC_ROE_PROGRESS);
     }
 
     return result;
@@ -8698,7 +8719,7 @@ bool CLuaBaseEntity::hasCompletedUniqueEvent(uint16 uniqueEventId)
  *  Notes   : See scripts/zones/Aht_Urhgan_Whitegate/npcs/Famad.lua
  ************************************************************************/
 
-void CLuaBaseEntity::addAssault(uint8 missionID)
+void CLuaBaseEntity::addAssault(const uint8 missionID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8714,8 +8735,7 @@ void CLuaBaseEntity::addAssault(uint8 missionID)
     }
 
     PChar->m_assaultLog.current = missionID;
-    PChar->pushPacket<CQuestMissionLogPacket>(PChar, MISSION_ASSAULT, LOG_MISSION_CURRENT);
-
+    charutils::SendPartialMissionLog(PChar, MissionLog::Assault, false);
     charutils::SaveMissionsList(PChar);
 }
 
@@ -8739,7 +8759,7 @@ void CLuaBaseEntity::delAssault(uint8 missionID)
     if (current == missionID)
     {
         PChar->m_assaultLog.current = 0;
-        PChar->pushPacket<CQuestMissionLogPacket>(PChar, MISSION_ASSAULT, LOG_MISSION_CURRENT);
+        charutils::SendPartialMissionLog(PChar, MissionLog::Assault, false);
     }
 
     charutils::SaveMissionsList(PChar);
@@ -8789,7 +8809,7 @@ bool CLuaBaseEntity::hasCompletedAssault(uint8 missionID)
  *  Notes   : See scripts/zones/Aht_Urhgan_Whitegate/npcs/Rytaal.lua
  ************************************************************************/
 
-void CLuaBaseEntity::completeAssault(uint8 missionID)
+void CLuaBaseEntity::completeAssault(const uint8 missionID) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -8806,9 +8826,8 @@ void CLuaBaseEntity::completeAssault(uint8 missionID)
 
     PChar->m_assaultLog.current             = 0;
     PChar->m_assaultLog.complete[missionID] = true;
-    PChar->pushPacket<CQuestMissionLogPacket>(PChar, MISSION_ASSAULT, LOG_MISSION_CURRENT);
-    PChar->pushPacket<CQuestMissionLogPacket>(PChar, MISSION_ASSAULT, LOG_MISSION_COMPLETE);
-
+    charutils::SendPartialMissionLog(PChar, MissionLog::Assault, false);
+    charutils::SendPartialMissionLog(PChar, MissionLog::Assault, true);
     charutils::SaveMissionsList(PChar);
 }
 
@@ -9061,9 +9080,9 @@ void CLuaBaseEntity::setMerits(uint8 numPoints)
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->PMeritPoints->SetMeritPoints(numPoints);
-    PChar->pushPacket<CMenuMeritPacket>(PChar);
-    PChar->pushPacket<CMonipulatorPacket1>(PChar);
-    PChar->pushPacket<CMonipulatorPacket2>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MERITS>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY1>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY2>(PChar);
 
     charutils::SaveCharExp(PChar, PChar->GetMJob());
 }
@@ -9125,7 +9144,7 @@ void CLuaBaseEntity::setCapacityPoints(uint16 amount)
     CCharEntity* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->PJobPoints->SetCapacityPoints(amount);
-    PChar->pushPacket<CMenuJobPointsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::JOB_POINTS>(PChar);
 }
 
 /************************************************************************
@@ -9146,7 +9165,7 @@ void CLuaBaseEntity::setJobPoints(uint16 amount)
     CCharEntity* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->PJobPoints->SetJobPoints(amount);
-    PChar->pushPacket<CMenuJobPointsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::JOB_POINTS>(PChar);
 }
 
 /************************************************************************
@@ -9166,7 +9185,7 @@ void CLuaBaseEntity::addJobPoints(uint8 jobID, uint16 amount)
     CCharEntity* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->PJobPoints->AddJobPoints(jobID, amount);
-    PChar->pushPacket<CMenuJobPointsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::JOB_POINTS>(PChar);
 }
 
 /************************************************************************
@@ -9186,7 +9205,7 @@ void CLuaBaseEntity::delJobPoints(uint8 jobID, uint16 amount)
     CCharEntity* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     PChar->PJobPoints->DelJobPoints(jobID, amount);
-    PChar->pushPacket<CMenuJobPointsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::JOB_POINTS>(PChar);
 }
 
 /************************************************************************
@@ -9237,7 +9256,7 @@ void CLuaBaseEntity::masterJob()
         }
     }
 
-    PChar->pushPacket<CMenuJobPointsPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::JOB_POINTS>(PChar);
 }
 
 /************************************************************************
@@ -9487,7 +9506,7 @@ void CLuaBaseEntity::addCP(int32 cp)
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     charutils::AddPoints(PChar, charutils::GetConquestPointsName(PChar).c_str(), cp);
-    PChar->pushPacket<CConquestPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_CONQUEST>(PChar);
 }
 
 /************************************************************************
@@ -9508,7 +9527,7 @@ void CLuaBaseEntity::delCP(int32 cp)
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
     charutils::AddPoints(PChar, charutils::GetConquestPointsName(PChar).c_str(), -cp);
-    PChar->pushPacket<CConquestPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_CONQUEST>(PChar);
 }
 
 /************************************************************************
@@ -10731,7 +10750,7 @@ void CLuaBaseEntity::addLearnedAbility(uint16 abilityID)
         charutils::addAbility(PChar, abilityID);
         charutils::SaveLearnedAbilities(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
-        PChar->pushPacket<CMessageBasicPacket>(PChar, PChar, 0, 0, 442);
+        PChar->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(PChar, PChar, 0, 0, static_cast<MSGBASIC_ID>(442));
     }
 }
 
@@ -10810,11 +10829,11 @@ void CLuaBaseEntity::delLearnedAbility(uint16 abilityID)
 /************************************************************************
  *  Function: addSpell()
  *  Purpose : Adds a specified spell to the player
- *  Example : player:addSpell(128)
- *  Notes   :
+ *  Example : player:addSpell(128, { silentLog = true, saveToDB = false })
+ *  Notes   : Optional config table accepts bools for: silentLog, saveToDB, sendUpdate.
  ************************************************************************/
 
-void CLuaBaseEntity::addSpell(uint16 spellID, sol::variadic_args va)
+void CLuaBaseEntity::addSpell(uint16 spellID, const sol::optional<sol::table>& paramTable)
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -10822,26 +10841,43 @@ void CLuaBaseEntity::addSpell(uint16 spellID, sol::variadic_args va)
         return;
     }
 
+    const auto coalesceParam = [](const sol::optional<sol::table>& maybeParamTable, const std::string& key, bool defaultValue) -> bool
+    {
+        if (maybeParamTable.has_value())
+        {
+            const auto& paramTable = *maybeParamTable;
+            if (paramTable[key].valid())
+            {
+                return paramTable[key].get_or<bool>(defaultValue);
+            }
+        }
+        return defaultValue;
+    };
+
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    bool silentLog  = va[0].is<bool>() ? va[0].as<bool>() : false;
-    bool save       = va[1].is<bool>() ? va[1].as<bool>() : true;
-    bool sendUpdate = va[2].is<bool>() ? va[2].as<bool>() : true;
+    const bool silentLog  = coalesceParam(paramTable, "silentLog", /*defaultValue=*/false);
+    const bool saveToDB   = coalesceParam(paramTable, "saveToDB", /*defaultValue=*/true);
+    const bool sendUpdate = coalesceParam(paramTable, "sendUpdate", /*defaultValue=*/true);
 
+    // Add spell to player's active spell list
     if (charutils::addSpell(PChar, spellID))
     {
+        // Update player's client spell list
         if (sendUpdate)
         {
             PChar->pushPacket<GP_SERV_COMMAND_MAGIC_DATA>(PChar);
         }
 
+        // Send a chat update "Player learns a new spell!"
         if (!silentLog)
         {
-            PChar->pushPacket<CMessageBasicPacket>(PChar, PChar, 0, 0, 23);
+            PChar->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE>(PChar, PChar, 0, 0, static_cast<MSGBASIC_ID>(23));
         }
 
-        if (save)
+        if (saveToDB)
         {
+            // Add spell to player's permanent learned spell list
             charutils::SaveSpell(PChar, spellID);
         }
     }
@@ -10897,11 +10933,12 @@ uint32 CLuaBaseEntity::canLearnSpell(uint16 spellID)
 
 /************************************************************************
  *  Function: delSpell()
- *  Purpose : Deletes a learned spell from a player
- *  Example : player:delSpell(528)
+ *  Purpose : Deletes a spell from a player's spell list
+ *  Example : player:delSpell(528, { sendUpdate = false })
+ *  Notes   : Optional config table accepts bools for: saveToDB, sendUpdate.
  ************************************************************************/
 
-void CLuaBaseEntity::delSpell(uint16 spellID)
+void CLuaBaseEntity::delSpell(uint16 spellID, const sol::optional<sol::table>& paramTable)
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -10909,12 +10946,38 @@ void CLuaBaseEntity::delSpell(uint16 spellID)
         return;
     }
 
+    const auto coalesceParam = [](const sol::optional<sol::table>& maybeParamTable, const std::string& key, bool defaultValue) -> bool
+    {
+        if (maybeParamTable.has_value())
+        {
+            const auto& paramTable = *maybeParamTable;
+            if (paramTable[key].valid())
+            {
+                return paramTable[key].get_or<bool>(defaultValue);
+            }
+        }
+        return defaultValue;
+    };
+
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
+    const bool saveToDB   = coalesceParam(paramTable, "saveToDB", /*defaultValue=*/true);
+    const bool sendUpdate = coalesceParam(paramTable, "sendUpdate", /*defaultValue=*/true);
+
+    // Remove spell from player's active spell list
     if (charutils::delSpell(PChar, spellID))
     {
-        charutils::DeleteSpell(PChar, spellID);
-        PChar->pushPacket<GP_SERV_COMMAND_MAGIC_DATA>(PChar);
+        // Update player's client spell list
+        if (sendUpdate)
+        {
+            PChar->pushPacket<GP_SERV_COMMAND_MAGIC_DATA>(PChar);
+        }
+
+        // Remove spell from player's permanent learned spell list
+        if (saveToDB)
+        {
+            charutils::DeleteSpell(PChar, spellID);
+        }
     }
 }
 
@@ -10939,7 +11002,7 @@ void CLuaBaseEntity::recalculateSkillsTable()
     charutils::BuildingCharWeaponSkills(PChar);
 
     PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-    PChar->pushPacket<CCharRecastPacket>(PChar);
+    PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
     PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
 }
 
@@ -11762,7 +11825,7 @@ void CLuaBaseEntity::instanceEntry(CLuaBaseEntity* PLuaBaseEntity, uint32 respon
 
     CBaseEntity* PTarget = PLuaBaseEntity->m_PBaseEntity;
 
-    static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<CInstanceEntryPacket>(PTarget, response);
+    static_cast<CCharEntity*>(m_PBaseEntity)->pushPacket<GP_SERV_COMMAND_REGISTRATION>(PTarget, response);
 }
 
 /************************************************************************
@@ -12212,7 +12275,7 @@ void CLuaBaseEntity::allowSendRaisePrompt()
  *  Example : player:countdown(60)
  *  Notes   : Using 0 or no argument removes the countdown bar from the player
  ************************************************************************/
-void CLuaBaseEntity::countdown(sol::object const& secondsObj)
+void CLuaBaseEntity::countdown(sol::object const& secondsObj) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -12220,12 +12283,12 @@ void CLuaBaseEntity::countdown(sol::object const& secondsObj)
         return;
     }
 
-    CCharEntity* PChar  = (CCharEntity*)m_PBaseEntity;
-    auto         packet = std::make_unique<CObjectiveUtilityPacket>();
+    CCharEntity* PChar  = static_cast<CCharEntity*>(m_PBaseEntity);
+    auto         packet = std::make_unique<GP_SERV_COMMAND_BATTLEFIELD>();
 
     if (secondsObj.is<uint32>())
     {
-        packet->addCountdown(secondsObj.as<uint32>());
+        packet->addCountdown(secondsObj.as<uint32>(), 0);
     }
 
     PChar->pushPacket(std::move(packet));
@@ -12272,7 +12335,7 @@ void CLuaBaseEntity::countdown(sol::object const& secondsObj)
         Can have up to 6 bars. Many of these items are optional.
         Calling without arguments will clear everything.
  ************************************************************************/
-void CLuaBaseEntity::objectiveUtility(sol::object const& obj)
+void CLuaBaseEntity::objectiveUtility(sol::object const& obj) const
 {
     if (m_PBaseEntity->objtype != TYPE_PC)
     {
@@ -12280,8 +12343,8 @@ void CLuaBaseEntity::objectiveUtility(sol::object const& obj)
         return;
     }
 
-    CCharEntity* PChar  = (CCharEntity*)m_PBaseEntity;
-    auto         packet = std::make_unique<CObjectiveUtilityPacket>();
+    CCharEntity* PChar  = static_cast<CCharEntity*>(m_PBaseEntity);
+    auto         packet = std::make_unique<GP_SERV_COMMAND_BATTLEFIELD>();
 
     if (obj.is<sol::table>())
     {
@@ -12290,17 +12353,17 @@ void CLuaBaseEntity::objectiveUtility(sol::object const& obj)
         {
             if (countdownObj.is<sol::table>())
             {
-                uint32 duration = countdownObj.as<sol::table>().get<uint32>("duration");
-                uint32 warning  = countdownObj.as<sol::table>().get_or<uint32>("warning", 0);
+                const uint32 duration = countdownObj.as<sol::table>().get<uint32>("duration");
+                const uint32 warning  = countdownObj.as<sol::table>().get_or<uint32>("warning", 0);
                 packet->addCountdown(duration, warning);
             }
             else if (countdownObj.is<uint32>())
             {
-                packet->addCountdown(countdownObj.as<uint32>());
+                packet->addCountdown(countdownObj.as<uint32>(), 0);
             }
         }
 
-        sol::object barsObj = obj.as<sol::table>()["bars"];
+        const sol::object barsObj = obj.as<sol::table>()["bars"];
         if (barsObj.valid() && barsObj.is<sol::table>())
         {
             std::vector<std::pair<std::string, uint32>> bars;
@@ -12309,8 +12372,8 @@ void CLuaBaseEntity::objectiveUtility(sol::object const& obj)
                 sol::object barObj = barsObj.as<sol::table>()[i];
                 if (barObj.valid() && barObj.is<sol::table>())
                 {
-                    std::string barTitle = barObj.as<sol::table>().get<std::string>("title");
-                    uint32      barValue = barObj.as<sol::table>().get<uint32>("value");
+                    auto   barTitle = barObj.as<sol::table>().get<std::string>("title");
+                    uint32 barValue = barObj.as<sol::table>().get<uint32>("value");
                     bars.emplace_back(barTitle, barValue);
                 }
                 else
@@ -12324,11 +12387,11 @@ void CLuaBaseEntity::objectiveUtility(sol::object const& obj)
         sol::object scoreboardObj = obj.as<sol::table>()["scoreboard"];
         if (scoreboardObj.valid() && scoreboardObj.is<sol::table>())
         {
-            std::pair<int32, int32> score = {
+            const std::pair<int32, int32> score = {
                 static_cast<int32>(scoreboardObj.as<sol::table>().get_or<uint32>("marchlandScore", 0)),
                 static_cast<int32>(scoreboardObj.as<sol::table>().get_or<uint32>("strongholdScore", 0))
             };
-            std::vector<uint32> data = {
+            const std::vector<uint32> data = {
                 scoreboardObj.as<sol::table>().get_or<uint32>("marchlandProgress", 0),
                 scoreboardObj.as<sol::table>().get_or<uint32>("marchlandProgressMax", 0),
                 scoreboardObj.as<sol::table>().get_or<uint32>("strongholdProgress", 0),
@@ -12339,30 +12402,30 @@ void CLuaBaseEntity::objectiveUtility(sol::object const& obj)
             packet->addScoreboard(score, data);
         }
 
-        sol::object fenceObj = obj.as<sol::table>()["fence"];
+        const sol::object fenceObj = obj.as<sol::table>()["fence"];
         if (fenceObj.valid() && fenceObj.is<sol::table>())
         {
-            sol::object fencePosObj = fenceObj.as<sol::table>()["pos"];
-            float       posX        = 0.000;
-            float       posZ        = 0.000;
+            const sol::object fencePosObj = fenceObj.as<sol::table>()["pos"];
+            float             posX        = 0.000;
+            float             posZ        = 0.000;
             if (fencePosObj.valid() && fencePosObj.is<sol::table>())
             {
                 posX = fencePosObj.as<sol::table>().get<float>("x");
                 posZ = fencePosObj.as<sol::table>().get<float>("z");
             }
 
-            float radius = fenceObj.as<sol::table>().get_or<float>("radius", 0.00);
-            float render = fenceObj.as<sol::table>().get_or<float>("render", 25.00);
-            bool  blue   = fenceObj.as<sol::table>().get_or<bool, std::string, bool>("blue", false);
+            const float radius = fenceObj.as<sol::table>().get_or<float>("radius", 0.00);
+            const float render = fenceObj.as<sol::table>().get_or<float>("render", 25.00);
+            const bool  blue   = fenceObj.as<sol::table>().get_or<bool, std::string, bool>("blue", false);
 
             packet->addFence(posX, posZ, radius, render, blue);
         }
 
-        sol::object helpObj = obj.as<sol::table>()["help"];
+        const sol::object helpObj = obj.as<sol::table>()["help"];
         if (helpObj.valid() && helpObj.is<sol::table>())
         {
-            uint16 title       = helpObj.as<sol::table>().get<uint16>("title");
-            uint16 description = helpObj.as<sol::table>().get<uint16>("description");
+            const uint16 title       = helpObj.as<sol::table>().get<uint16>("title");
+            const uint16 description = helpObj.as<sol::table>().get<uint16>("description");
             packet->addHelpText(title, description);
         }
     }
@@ -12382,7 +12445,7 @@ void CLuaBaseEntity::enableEntities(sol::object const& obj)
     {
         if (obj.is<std::vector<uint32>>())
         {
-            PChar->pushPacket<CEntityEnableList>(obj.as<std::vector<uint32>>());
+            PChar->pushPacket<GP_SERV_COMMAND_ENTITY_VIS>(obj.as<std::vector<uint32>>());
         }
     }
     else
@@ -12496,7 +12559,7 @@ void CLuaBaseEntity::addRecast(uint8 recastCont, uint16 recastID, uint32 duratio
         {
             CCharEntity* PChar = (CCharEntity*)m_PBaseEntity;
             PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-            PChar->pushPacket<CCharRecastPacket>(PChar);
+            PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
         }
     }
 }
@@ -12547,7 +12610,7 @@ void CLuaBaseEntity::resetRecast(uint8 rType, uint16 recastID)
         }
 
         PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-        PChar->pushPacket<CCharRecastPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
     }
 }
 
@@ -12568,7 +12631,7 @@ void CLuaBaseEntity::resetRecasts()
         PChar->PRecastContainer->Del(RECAST_MAGIC);
         PChar->PRecastContainer->Del(RECAST_ABILITY);
         PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-        PChar->pushPacket<CCharRecastPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
     }
 }
 
@@ -12730,15 +12793,15 @@ void CLuaBaseEntity::recalculateStats()
 
         PChar->UpdateHealth();
 
-        PChar->pushPacket<CCharJobsPacket>(PChar);
-        PChar->pushPacket<CCharStatsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS>(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_CLISTATUS2>(PChar);
-        PChar->pushPacket<CCharRecastPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);
         PChar->pushPacket<GP_SERV_COMMAND_COMMAND_DATA>(PChar);
         PChar->pushPacket<CCharStatusPacket>(PChar);
-        PChar->pushPacket<CMenuMeritPacket>(PChar);
-        PChar->pushPacket<CMonipulatorPacket1>(PChar);
-        PChar->pushPacket<CMonipulatorPacket2>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MERITS>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY1>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_MISCDATA::MONSTROSITY2>(PChar);
         PChar->pushPacket<CCharSyncPacket>(PChar);
     }
 }
@@ -14609,7 +14672,7 @@ void CLuaBaseEntity::setStatDebilitation(uint16 statDebil)
     {
         auto* PChar{ static_cast<CCharEntity*>(m_PBaseEntity) };
         PChar->m_StatsDebilitation = statDebil;
-        PChar->pushPacket<CCharJobsPacket>(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_JOB_INFO>(PChar);
     }
 }
 
@@ -14714,7 +14777,7 @@ uint16 CLuaBaseEntity::getStat(uint16 statId, sol::variadic_args va)
  *  Notes   : Uses the ACC member of CBattleEntity for calculation
  ************************************************************************/
 
-uint16 CLuaBaseEntity::getACC()
+uint16 CLuaBaseEntity::getACC(sol::object const& maybeAttackNumber)
 {
     if (m_PBaseEntity->objtype == TYPE_NPC)
     {
@@ -14722,8 +14785,10 @@ uint16 CLuaBaseEntity::getACC()
         return 0;
     }
 
+    uint8_t attackNumber = maybeAttackNumber.is<uint8_t>() ? maybeAttackNumber.as<uint8_t>() : 0;
+
     auto* PEntity = static_cast<CBattleEntity*>(m_PBaseEntity);
-    return PEntity->ACC(0, 0); // (attackNumber = 0, offsetAcc = 0)
+    return PEntity->ACC(attackNumber, 0); // (attackNumber = 0, offsetAcc = 0)
 }
 
 /************************************************************************
@@ -15634,7 +15699,7 @@ void CLuaBaseEntity::trustPartyMessage(uint32 message_id)
         PMaster->ForParty([&](CBattleEntity* PMember)
         {
             auto* PCharMember = static_cast<CCharEntity*>(PMember);
-            PCharMember->pushPacket<CMessageCombatPacket>(PTrust, PMember, message_id, 0, 711);
+            PCharMember->pushPacket<GP_SERV_COMMAND_BATTLE_MESSAGE2>(PTrust, PMember, message_id, 0, 711);
         });
         // clang-format on
     }
@@ -16427,8 +16492,7 @@ void CLuaBaseEntity::setAutomatonFrame(uint8 frameItemID)
     }
 
     puppetutils::setFrame(PChar, frameItemID - 0x2000);
-    PChar->pushPacket<CCharJobExtraPacket>(PChar, true);
-    PChar->pushPacket<CCharJobExtraPacket>(PChar, false);
+    charutils::SendExtendedJobPackets(PChar);
     puppetutils::SaveAutomaton(PChar);
 }
 
@@ -16469,8 +16533,7 @@ void CLuaBaseEntity::setAutomatonHead(uint8 headItemID)
     }
 
     puppetutils::setHead(PChar, headItemID - 0x2000);
-    PChar->pushPacket<CCharJobExtraPacket>(PChar, true);
-    PChar->pushPacket<CCharJobExtraPacket>(PChar, false);
+    charutils::SendExtendedJobPackets(PChar);
     puppetutils::SaveAutomaton(PChar);
 }
 
@@ -16556,7 +16619,7 @@ void CLuaBaseEntity::removeAllManeuvers()
  *  Example : pet:getAttachment(1)
  ************************************************************************/
 
-auto CLuaBaseEntity::getAttachment(uint8 slotId) -> CItem*
+auto CLuaBaseEntity::getAttachment(const uint8 slotId) const -> CItem*
 {
     auto* PAutomaton = dynamic_cast<CAutomatonEntity*>(m_PBaseEntity);
 
@@ -16581,7 +16644,7 @@ auto CLuaBaseEntity::getAttachment(uint8 slotId) -> CItem*
  *  Example : player:setAttachment(8465, 0)
  ************************************************************************/
 
-void CLuaBaseEntity::setAttachment(uint8 attachmentItemID, uint8 slotID)
+void CLuaBaseEntity::setAttachment(const uint8 attachmentItemID, const uint8 slotID) const
 {
     auto* PChar = dynamic_cast<CCharEntity*>(m_PBaseEntity);
 
@@ -16592,8 +16655,7 @@ void CLuaBaseEntity::setAttachment(uint8 attachmentItemID, uint8 slotID)
     }
 
     puppetutils::setAttachment(PChar, slotID, attachmentItemID - 0x2100);
-    PChar->pushPacket<CCharJobExtraPacket>(PChar, true);
-    PChar->pushPacket<CCharJobExtraPacket>(PChar, false);
+    charutils::SendExtendedJobPackets(PChar);
     puppetutils::SaveAutomaton(PChar);
 }
 
@@ -19514,6 +19576,7 @@ void CLuaBaseEntity::Register()
     SOL_REGISTER("getZoneName", CLuaBaseEntity::getZoneName);
     SOL_REGISTER("hasVisitedZone", CLuaBaseEntity::hasVisitedZone);
     SOL_REGISTER("getPreviousZone", CLuaBaseEntity::getPreviousZone);
+    SOL_REGISTER("getPreviousZoneLineID", CLuaBaseEntity::getPreviousZoneLineID);
     SOL_REGISTER("getCurrentRegion", CLuaBaseEntity::getCurrentRegion);
     SOL_REGISTER("getContinentID", CLuaBaseEntity::getContinentID);
     SOL_REGISTER("isInMogHouse", CLuaBaseEntity::isInMogHouse);
@@ -19679,7 +19742,7 @@ void CLuaBaseEntity::Register()
     SOL_REGISTER("getLevelCap", CLuaBaseEntity::getLevelCap);
     SOL_REGISTER("setLevelCap", CLuaBaseEntity::setLevelCap);
     SOL_REGISTER("levelRestriction", CLuaBaseEntity::levelRestriction);
-    SOL_REGISTER("addJobTraits", CLuaBaseEntity::addJobTraits);
+    SOL_REGISTER("addWyvernJobTraits", CLuaBaseEntity::addWyvernJobTraits);
 
     // Monstrosity
     SOL_REGISTER("getMonstrosityData", CLuaBaseEntity::getMonstrosityData);

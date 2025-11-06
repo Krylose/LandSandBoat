@@ -133,7 +133,7 @@ namespace battleutils
     SKILLCHAIN_ELEMENT   FormSkillchain(const std::list<SKILLCHAIN_ELEMENT>& resonance, const std::list<SKILLCHAIN_ELEMENT>& skill);
     uint8                GetSkillchainTier(SKILLCHAIN_ELEMENT skillchain);
     uint8                GetSkillchainSubeffect(SKILLCHAIN_ELEMENT skillchain);
-    int16                GetSkillchainMinimumResistance(SKILLCHAIN_ELEMENT element, CBattleEntity* PDefender, ELEMENT* appliedEle);
+    int16                GetSkillchainMinimumResistance(SKILLCHAIN_ELEMENT element, CBattleEntity* PDefender, ELEMENT& appliedEle);
     std::vector<ELEMENT> GetSkillchainMagicElement(SKILLCHAIN_ELEMENT skillchain);
     Mod                  GetResistanceRankModFromElement(ELEMENT& element);
 
@@ -273,5 +273,6 @@ namespace battleutils
     CBattleEntity* GetCoverAbilityUser(CBattleEntity* PCoverAbilityTarget, CBattleEntity* PMob);
     bool           IsMagicCovered(CCharEntity* PCoverAbilityUser);
     void           ConvertDmgToMP(CBattleEntity* PDefender, int32 damage, bool IsCovered);
+    void           addEcosystemKillerEffects(CBattleEntity* PBattleEntity);
     float          CheckLiementAbsorb(CBattleEntity* PBattleEntity, DAMAGE_TYPE DamageType);
 }; // namespace battleutils
