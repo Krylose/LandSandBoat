@@ -1,4 +1,4 @@
-/*
+﻿/*
 ===========================================================================
 
   Copyright (c) 2025 LandSandBoat Dev Teams
@@ -21,23 +21,15 @@
 
 #pragma once
 
-#include <optional>
+#include <cstdint>
 
-template <typename T>
-class Lazy
+// result.miss
+// 3 bits
+enum class ActionResolution : uint8_t
 {
-public:
-    Lazy() = default;
-
-    auto operator()() -> T&
-    {
-        if (!value_)
-        {
-            value_ = T();
-        }
-        return *value_;
-    }
-
-private:
-    std::optional<T> value_;
+    Hit   = 0, // 000
+    Miss  = 1, // 001
+    Guard = 2, // 010
+    Parry = 3, // 011
+    Block = 4, // 100
 };

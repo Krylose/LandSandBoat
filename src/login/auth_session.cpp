@@ -32,14 +32,16 @@ using json = nlohmann::json;
 
 namespace
 {
-    constexpr bool isBcryptHash(const std::string& passHash)
-    {
-        return std::size(passHash) == 60 &&
-               passHash[0] == '$' &&
-               passHash[1] == '2' &&
-               (passHash[2] == 'a' || passHash[2] == 'b' || passHash[2] == 'y' || passHash[2] == 'x') && // bcrypt hash versions
-               passHash[3] == '$';
-    }
+
+constexpr bool isBcryptHash(const std::string& passHash)
+{
+    return std::size(passHash) == 60 &&
+           passHash[0] == '$' &&
+           passHash[1] == '2' &&
+           (passHash[2] == 'a' || passHash[2] == 'b' || passHash[2] == 'y' || passHash[2] == 'x') && // bcrypt hash versions
+           passHash[3] == '$';
+}
+
 } // namespace
 
 void auth_session::start()
@@ -194,6 +196,8 @@ void auth_session::read_func()
                 return;
             }
 
+            bool usedOTP = false;
+
             if (otpHelpers::doesAccountNeedOTP(username, "TOTP"))
             {
                 if (!otpHelpers::validateTOTP(otp, otpHelpers::getAccountSecret(username, "TOTP")))
@@ -201,6 +205,8 @@ void auth_session::read_func()
                     sendLoginResult(login_result::LOGIN_ERROR, 1);
                     return;
                 }
+
+                usedOTP = true;
             }
 
             // We've validated the password by this point, get account info
@@ -220,6 +226,15 @@ void auth_session::read_func()
 
                     zmqDealerWrapper_.outgoingQueue_.enqueue(zmq::message_t(payload.data(), payload.size()));
 
+                    // set Satchel to the same size as inventory on all chars on their account if character has OTP
+                    // Note: Upgrades happen in-game with gobbiebag
+                    if (usedOTP)
+                    {
+                        db::preparedStmt("UPDATE char_storage a JOIN char_storage b ON a.charid = b.charid "
+                                         "SET a.satchel = b.inventory "
+                                         "WHERE a.charid IN (SELECT charid FROM chars WHERE accid = ?)",
+                                         accountID);
+                    }
                     // TODO: Lock out same account logging in multiple times. Can check data/view session existence on same IP/account?
                     // Not a real problem because the account is locked out when a character is logged in.
 
@@ -318,9 +333,16 @@ void auth_session::read_func()
                 char strtimecreate[128];
                 strftime(strtimecreate, sizeof(strtimecreate), "%Y:%m:%d %H:%M:%S", &timecreateinfo);
 
-                const auto rset2 = db::preparedStmt("INSERT INTO accounts(id,login,password,timecreate,timelastmodify,status,priv) "
-                                                    "VALUES(?, ?, ?, ?, NULL, ?, ?)",
-                                                    accid, username, BCrypt::generateHash(password), strtimecreate, static_cast<uint8>(ACCOUNT_STATUS_CODE::NORMAL), static_cast<uint8>(ACCOUNT_PRIVILEGE_CODE::USER));
+                const auto rset2 = db::preparedStmt(
+                    "INSERT INTO accounts(id,login,password,timecreate,timelastmodify,status,priv) "
+                    "VALUES(?, ?, ?, ?, NULL, ?, ?)",
+                    accid,
+                    username,
+                    BCrypt::generateHash(password),
+                    strtimecreate,
+                    static_cast<uint8>(ACCOUNT_STATUS_CODE::NORMAL),
+                    static_cast<uint8>(ACCOUNT_PRIVILEGE_CODE::USER));
+
                 if (!rset2)
                 {
                     sendLoginResult(login_result::LOGIN_ERROR_CREATE, 1);
@@ -392,8 +414,11 @@ void auth_session::read_func()
 
                 db::preparedStmt("UPDATE accounts SET accounts.timelastmodify = NULL WHERE accounts.id = ?", accid);
 
-                const auto rset2 = db::preparedStmt("UPDATE accounts SET accounts.password = ? WHERE accounts.id = ?",
-                                                    BCrypt::generateHash(updated_password), accid);
+                const auto rset2 = db::preparedStmt(
+                    "UPDATE accounts SET accounts.password = ? WHERE accounts.id = ?",
+                    BCrypt::generateHash(updated_password),
+                    accid);
+
                 if (!rset2)
                 {
                     ShowWarningFmt("login_parse: Error trying to update password in database for user <{}>.", username);
