@@ -14,8 +14,8 @@ entity.onMobEngage = function(mob, target)
     mob:useMobAbility(xi.mobSkill.BERSERK_DHALMEL)
 end
 
--- Only uses Healing Breeze as a weapon skill.
-entity.onMobWeaponSkillPrepare = function(mob, target)
+-- Only uses Stomping as a weapon skill.
+entity.onMobMobskillChoose = function(mob, target)
     return xi.mobSkill.STOMPING
 end
 
