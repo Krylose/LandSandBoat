@@ -361,11 +361,11 @@ auto resolveRecipe(CCharEntity* PChar, const SynthOffer& offer) -> bool
 
     const auto& recipe = it->second;
 
-    if (!luautils::IsContentEnabled(recipe.ContentTag))
-    {
-        PChar->pushPacket<GP_SERV_COMMAND_COMBINE_ANS>(PChar, SynthesisResult::CancelBadRecipe);
-        return false;
-    }
+        //if (!luautils::IsContentEnabled(recipe.ContentTag))
+        //{
+        //    PChar->pushPacket<GP_SERV_COMMAND_COMBINE_ANS>(PChar, SynthesisResult::CancelBadRecipe);
+        //    return false;
+        //}
 
     const CItem* PItem = xi::items::lookup(recipe.Result);
     if (PItem && PItem->hasFlag(ItemFlag::Rare) && charutils::HasItem(PChar, recipe.Result))
