@@ -323,11 +323,11 @@ auto isRightRecipe(CCharEntity* PChar) -> bool
     {
         const auto& recipe = synthRecipes[possibleRecipeKey];
 
-        if (!luautils::IsContentEnabled(recipe.ContentTag))
-        {
-            PChar->pushPacket<GP_SERV_COMMAND_COMBINE_ANS>(PChar, SynthesisResult::CancelBadRecipe);
-            return false;
-        }
+        //if (!luautils::IsContentEnabled(recipe.ContentTag))
+        //{
+        //    PChar->pushPacket<GP_SERV_COMMAND_COMBINE_ANS>(PChar, SynthesisResult::CancelBadRecipe);
+        //    return false;
+        //}
 
         if (recipe.RequiredKeyItem == KeyItem::NONE || charutils::hasKeyItem(PChar, recipe.RequiredKeyItem))
         {
