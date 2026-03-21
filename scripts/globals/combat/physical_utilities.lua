@@ -119,10 +119,12 @@ xi.combat.physical.calculateAttackDamage = function(actor, target, slot, physica
             local regionID      = actor:getCurrentRegion()
             local fSTR          = xi.combat.physical.calculateMeleeStatFactor(actor, target)
 
-            if regionID <= xi.region.LIMBUS then
-                mobH2HPenalty = 0.425 -- Vanilla - COP
-            else
-                mobH2HPenalty = 0.65
+            if actor:getMobMod(xi.mobMod.NO_H2H_PENALTY) == 0 then
+                if regionID <= xi.region.LIMBUS then
+                    mobH2HPenalty = 0.425 -- Vanilla - COP
+                else
+                    mobH2HPenalty = 0.65
+                end
             end
 
             baseDamage = actor:getWeaponDmg() + bonusBasePhysicalDamage
@@ -736,6 +738,11 @@ xi.combat.physical.calculateRangedPDIF = function(actor, target, weaponType, wsA
     ----------------------------------------
     local levelDifFactor = 0
 
+    -- Mod-based bypass for ranged level correction
+    if actor:isPC() and actor:getMod(xi.mod.RA_IGNORE_LVL_DIFF) > 0 then
+        applyLevelCorrection = false
+    end
+
     if applyLevelCorrection then
         levelDifFactor = (actor:getMainLvl() - target:getMainLvl()) * 0.025
     end
@@ -886,8 +893,25 @@ xi.combat.physical.criticalRateFromFlourish = function(actor)
     return buildingFlourishBonus
 end
 
+---@param actor CBaseEntity
+---@param slot xi.slot
+---@return number
+xi.combat.physical.criticalRateFromWeaponSlot = function(actor, slot)
+    if actor:isPC() then
+        return actor:getGearModFromSlot(slot, xi.mod.CRITHITRATE_ONLY_WEP) / 100
+    end
+
+    return 0
+end
+
 -- Critical rate master function.
-xi.combat.physical.calculateSwingCriticalRate = function(actor, target, actorTP, optCritModTable)
+---@param actor CBaseEntity
+---@param target CBaseEntity
+---@param actorTP number
+---@param slot xi.slot
+---@param optCritModTable table?
+---@return integer
+xi.combat.physical.calculateSwingCriticalRate = function(actor, target, actorTP, slot, optCritModTable)
     -- See reference at https://www.bg-wiki.com/ffxi/Critical_Hit_Rate
     local finalCriticalRate     = 0
     local baseCriticalRate      = 0.05
@@ -895,6 +919,7 @@ xi.combat.physical.calculateSwingCriticalRate = function(actor, target, actorTP,
     local inninBonus            = xi.combat.physical.criticalRateFromInnin(actor, target)
     local fencerBonus           = xi.combat.physical.criticalRateFromFencer(actor)
     local buildingFlourishBonus = xi.combat.physical.criticalRateFromFlourish(actor)
+    local weaponSlotBonus       = xi.combat.physical.criticalRateFromWeaponSlot(actor, slot)
     local modifierBonus         = actor:getMod(xi.mod.CRITHITRATE) / 100
     local meritBonus            = actor:getMerit(xi.merit.CRIT_HIT_RATE) / 100
     local targetCriticalEvasion = target:getMod(xi.mod.CRITICAL_HIT_EVASION) / 100
@@ -907,7 +932,7 @@ xi.combat.physical.calculateSwingCriticalRate = function(actor, target, actorTP,
     end
 
     -- Add all different bonuses and clamp.
-    finalCriticalRate = baseCriticalRate + statBonus + inninBonus + fencerBonus + buildingFlourishBonus + modifierBonus + meritBonus - targetCriticalEvasion - targetMeritPenalty + tpFactor
+    finalCriticalRate = baseCriticalRate + statBonus + inninBonus + fencerBonus + buildingFlourishBonus + weaponSlotBonus + modifierBonus + meritBonus - targetCriticalEvasion - targetMeritPenalty + tpFactor
 
     return utils.clamp(finalCriticalRate, 0.05, 1) -- TODO: Need confirmation of no upper cap.
 end
@@ -1031,35 +1056,36 @@ xi.combat.physical.canGuard = function(defender, attacker)
 end
 
 xi.combat.physical.calculateGuardRate = function(defender, attacker)
-    local guardRate = 0
+    local guardRate     = 0
+    local attackerSkill = 0
+    local defenderSkill = 0
 
-    -- default to using actual skill
-    local guardSkill = defender:getSkillLevel(xi.skill.GUARD)
-
-    -- non-players do not have guard skill set on creation
-    -- so use max skill at the level for the job
-    if defender:isPet() then
-        guardSkill = defender:getMaxSkillLevel(defender:getMainLvl(), defender:getMainJob(), xi.skill.GUARD)
-    elseif defender:isTrust() then
-        -- TODO: check trust type for ilvl > 99 when implemented
-        guardSkill = defender:getMaxSkillLevel(math.min(defender:getMainLvl(), 99), defender:getMainJob(), xi.skill.GUARD)
-    end
-
-    guardSkill = guardSkill + defender:getMod(xi.mod.GUARD) + guardSkill * (defender:getMod(xi.mod.GUARD_PERCENT) / 100)
-
-    -- current assumption (from core) is that guard and parry Ilvl are the same
     if defender:isPC() then
-        guardSkill = guardSkill + defender:getILvlParry()
+        defenderSkill = defender:getSkillLevel(xi.skill.GUARD) + defender:getMod(xi.mod.GUARD) + defender:getILvlParry() -- getILvlParry also gets guard (h2h cannot have parry on the weapon)
+    else
+        defenderSkill = xi.data.skillLevel.getSkillCap(defender:getMainLvl(), xi.skillRank.A_PLUS)
     end
 
-    local levelDiffMult = 1 + (defender:getMainLvl() - attacker:getMainLvl()) / 15
-    levelDiffMult = utils.clamp(levelDiffMult, 0.4, 1.4)
+    if attacker:isPC() then
+        attackerSkill = attacker:getSkillLevel(attacker:getWeaponSkillType(xi.slot.MAIN)) + attacker:getILvlSkill()
+    else
+        attackerSkill = xi.data.skillLevel.getSkillCap(attacker:getMainLvl(), xi.skillRank.A_PLUS)
+    end
 
-    local attackerDex = attacker:getStat(xi.mod.DEX)
-    local defenderAgi = defender:getStat(xi.mod.AGI)
+    local skillDelta = defenderSkill - attackerSkill
+
+    -- This is approximated from parry
+    -- Two data points showed that Guard was approximately 1% better, so skillDelta is at _least_ 6 lower on the same target
+    -- The target was a lvl 43 chigoe, using the same parry skill vs guard skill with the known parrying rate data
+    -- This is a placeholder and is likely more accurate than the previous code.
+    if skillDelta <= 6 then
+        guardRate = math.floor(10 + skillDelta / (36 / 9))
+    else
+        guardRate = math.floor(10 + skillDelta / (60 / 9))
+    end
 
     -- Dodge's guard bonus goes over the cap
-    guardRate = utils.clamp(((guardSkill * 0.1 + (defenderAgi - attackerDex) * 0.125 + 10) * levelDiffMult), 5, 25) + defender:getMod(xi.mod.ADDITIVE_GUARD)
+    guardRate = utils.clamp(guardRate, 5, 25) + defender:getMod(xi.mod.ADDITIVE_GUARD)
 
     return guardRate
 end
@@ -1188,12 +1214,21 @@ end
 
 xi.combat.physical.isBlocked = function(defender, attacker)
     local blocked = false
-    if
-        xi.combat.physical.canBlock(defender, attacker) and
-        xi.combat.physical.calculateBlockRate(defender, attacker) * 100 >= math.random(1, 10000)
-    then
-        defender:trySkillUp(xi.skill.SHIELD, attacker:getMainLvl())
-        blocked = true
+
+    if xi.combat.physical.canBlock(defender, attacker) then
+
+        if xi.combat.physical.calculateBlockRate(defender, attacker) * 100 >= math.random(1, 10000) then
+            blocked = true
+        end
+
+        -- Handle skill ups.
+        if
+            defender:isPC() and
+            (blocked or                                  -- We blocked
+            not xi.settings.map.PARRY_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
+        then
+            defender:trySkillUp(xi.skill.SHIELD, attacker:getMainLvl())
+        end
     end
 
     return blocked
@@ -1240,17 +1275,26 @@ end
 
 xi.combat.physical.isGuarded = function(defender, attacker)
     local guarded = false
-    if
-        xi.combat.physical.canGuard(defender, attacker) and
-        xi.combat.physical.calculateGuardRate(defender, attacker) * 100 >= math.random(1, 10000)
-    then
-        guarded = true
-        if defender:isPC() then
-            defender:trySkillUp(xi.skill.GUARD, attacker:getMainLvl())
-            -- handle tactical guard
-            if defender:hasTrait(xi.trait.TACTICAL_GUARD) then
-                defender:addTP(defender:getMod(xi.mod.TACTICAL_GUARD))
+
+    if xi.combat.physical.canGuard(defender, attacker) then
+        local isPC = defender:isPC()
+        if xi.combat.physical.calculateGuardRate(defender, attacker) * 100 >= math.random(1, 10000) then
+            guarded = true
+            if isPC then
+                -- handle tactical guard
+                if defender:hasTrait(xi.trait.TACTICAL_GUARD) then
+                    defender:addTP(defender:getMod(xi.mod.TACTICAL_GUARD))
+                end
             end
+        end
+
+        -- Handle skill ups.
+        if
+            isPC and
+            (guarded or                                  -- We guarded
+            not xi.settings.map.PARRY_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
+        then
+            defender:trySkillUp(xi.skill.GUARD, attacker:getMainLvl())
         end
     end
 

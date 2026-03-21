@@ -239,20 +239,12 @@ bool IsParried(CBattleEntity* PAttacker, CBattleEntity* PDefender)
 
 bool IsGuarded(CBattleEntity* PAttacker, CBattleEntity* PDefender)
 {
-    if (facing(PDefender->loc.p, PAttacker->loc.p, 64))
-    {
-        return (xirand::GetRandomNumber(100) < battleutils::GetGuardRate(PAttacker, PDefender));
-    }
-    return false;
+    return luautils::callGlobal<bool>("xi.combat.physical.isGuarded", PDefender, PAttacker);
 }
 
 bool IsBlocked(CBattleEntity* PAttacker, CBattleEntity* PDefender)
 {
-    if (facing(PDefender->loc.p, PAttacker->loc.p, 64) && !PDefender->StatusEffectContainer->HasPreventActionEffect())
-    {
-        return (xirand::GetRandomNumber<float>(100) < battleutils::GetBlockRate(PAttacker, PDefender));
-    }
-    return false;
+    return luautils::callGlobal<bool>("xi.combat.physical.isBlocked", PDefender, PAttacker);
 }
 
 /************************************************************************
