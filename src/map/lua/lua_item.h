@@ -28,14 +28,16 @@
 class CItem;
 class CLuaItem
 {
-    CItem* m_PLuaItem;
+    const CItem* m_readItem;  // observer; always set
+    CItem*       m_writeItem; // null when wrapping a read-only template
 
 public:
     CLuaItem(CItem*);
+    CLuaItem(const CItem*);
 
-    CItem* GetItem() const
+    auto GetItem() const -> const CItem*
     {
-        return m_PLuaItem;
+        return m_readItem;
     }
 
     friend std::ostream& operator<<(std::ostream& out, const CLuaItem& item);
@@ -43,8 +45,8 @@ public:
     uint16 getID();    // get the item's id
     uint16 getSubID(); // get the item's subid
 
-    uint16 getFlag();  // get the item flag
-    uint8  getAHCat(); // get the ah category
+    auto  getFlag() const -> ItemFlag; // get the item flag
+    uint8 getAHCat();                  // get the ah category
 
     uint32 getQuantity(); // get the quantity of item
 
@@ -99,7 +101,7 @@ public:
 
     bool operator==(const CLuaItem& other) const
     {
-        return this->m_PLuaItem == other.m_PLuaItem;
+        return this->m_readItem == other.m_readItem;
     }
 
     static void Register();

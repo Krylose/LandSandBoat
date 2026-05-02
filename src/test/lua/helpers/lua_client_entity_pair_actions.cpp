@@ -25,7 +25,6 @@
 #include "common/logging.h"
 #include "common/timer.h"
 #include "common/utils.h"
-#include "enums/packet_c2s.h"
 #include "lua/helpers/lua_client_entity_pair_entities.h"
 #include "lua/helpers/lua_client_entity_pair_events.h"
 #include "lua/helpers/lua_client_entity_pair_packets.h"
@@ -37,8 +36,12 @@
 #include "map/enums/party_kind.h"
 #include "map/lua/lua_baseentity.h"
 #include "map/packets/c2s/0x01a_action.h"
+#include "map/packets/c2s/0x028_item_dump.h"
+#include "map/packets/c2s/0x029_item_move.h"
 #include "map/packets/c2s/0x036_item_transfer.h"
 #include "map/packets/c2s/0x037_item_use.h"
+#include "map/packets/c2s/0x03a_item_stack.h"
+#include "map/packets/c2s/0x053_lockstyle.h"
 #include "map/packets/c2s/0x06e_group_solicit_req.h"
 #include "map/packets/c2s/0x074_group_solicit_res.h"
 #include "map/spell.h"
@@ -61,7 +64,7 @@ CLuaClientEntityPairActions::CLuaClientEntityPairActions(CLuaClientEntityPair* p
 
 void CLuaClientEntityPairActions::move(const float x, const float y, const float z, sol::optional<uint8_t> rot) const
 {
-    const auto packet    = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_POS);
+    const auto packet    = parent_->packets().createPacket<GP_CLI_COMMAND_POS>();
     auto*      posPacket = packet->as<GP_CLI_COMMAND_POS>();
     posPacket->x         = x;
     posPacket->z         = y;
@@ -86,7 +89,7 @@ void CLuaClientEntityPairActions::useSpell(CLuaBaseEntity* target, const SpellID
         return;
     }
 
-    const auto packet               = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet               = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      actionPacket         = packet->as<GP_CLI_COMMAND_ACTION>();
     actionPacket->UniqueNo          = target->getID();
     actionPacket->ActIndex          = target->getTargID();
@@ -111,7 +114,7 @@ void CLuaClientEntityPairActions::useWeaponskill(CLuaBaseEntity* target, const u
         return;
     }
 
-    const auto packet                 = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet                 = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      actionPacket           = packet->as<GP_CLI_COMMAND_ACTION>();
     actionPacket->UniqueNo            = target->getID();
     actionPacket->ActIndex            = target->getTargID();
@@ -136,7 +139,7 @@ void CLuaClientEntityPairActions::useAbility(CLuaBaseEntity* target, const ABILI
         return;
     }
 
-    const auto packet                = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet                = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      actionPacket          = packet->as<GP_CLI_COMMAND_ACTION>();
     actionPacket->UniqueNo           = target->getID();
     actionPacket->ActIndex           = target->getTargID();
@@ -161,7 +164,7 @@ void CLuaClientEntityPairActions::changeTarget(CLuaBaseEntity* target) const
         return;
     }
 
-    const auto packet       = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      actionPacket = packet->as<GP_CLI_COMMAND_ACTION>();
     actionPacket->UniqueNo  = target->getID();
     actionPacket->ActIndex  = target->getTargID();
@@ -185,7 +188,7 @@ void CLuaClientEntityPairActions::rangedAttack(CLuaBaseEntity* target) const
         return;
     }
 
-    const auto packet       = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      actionPacket = packet->as<GP_CLI_COMMAND_ACTION>();
     actionPacket->UniqueNo  = target->getID();
     actionPacket->ActIndex  = target->getTargID();
@@ -209,7 +212,7 @@ void CLuaClientEntityPairActions::useItem(CLuaBaseEntity* target, const uint8 sl
         return;
     }
 
-    const auto packet             = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ITEM_USE);
+    const auto packet             = parent_->packets().createPacket<GP_CLI_COMMAND_ITEM_USE>();
     auto*      itemPacket         = packet->as<GP_CLI_COMMAND_ITEM_USE>();
     itemPacket->UniqueNo          = target->getID();
     itemPacket->ItemNum           = 0;
@@ -235,7 +238,7 @@ void CLuaClientEntityPairActions::trigger(CLuaBaseEntity* target, sol::optional<
         return;
     }
 
-    const auto packet       = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      actionPacket = packet->as<GP_CLI_COMMAND_ACTION>();
     actionPacket->UniqueNo  = target->getID();
     actionPacket->ActIndex  = target->getTargID();
@@ -263,7 +266,7 @@ void CLuaClientEntityPairActions::inviteToParty(CLuaBaseEntity* player) const
         return;
     }
 
-    const auto packet       = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_GROUP_SOLICIT_REQ);
+    const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_GROUP_SOLICIT_REQ>();
     auto*      invitePacket = packet->as<GP_CLI_COMMAND_GROUP_SOLICIT_REQ>();
     invitePacket->UniqueNo  = player->getID();
     invitePacket->ActIndex  = player->getTargID();
@@ -287,7 +290,7 @@ void CLuaClientEntityPairActions::formAlliance(CLuaBaseEntity* player) const
         return;
     }
 
-    const auto packet       = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_GROUP_SOLICIT_REQ);
+    const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_GROUP_SOLICIT_REQ>();
     auto*      invitePacket = packet->as<GP_CLI_COMMAND_GROUP_SOLICIT_REQ>();
     invitePacket->UniqueNo  = player->getID();
     invitePacket->ActIndex  = player->getTargID();
@@ -305,7 +308,7 @@ void CLuaClientEntityPairActions::formAlliance(CLuaBaseEntity* player) const
 
 void CLuaClientEntityPairActions::acceptPartyInvite() const
 {
-    const auto packet         = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_GROUP_SOLICIT_RES);
+    const auto packet         = parent_->packets().createPacket<GP_CLI_COMMAND_GROUP_SOLICIT_RES>();
     auto*      responsePacket = packet->as<GP_CLI_COMMAND_GROUP_SOLICIT_RES>();
     responsePacket->Res       = static_cast<uint8>(GP_CLI_COMMAND_GROUP_SOLICIT_RES_RES::Accept);
 
@@ -343,7 +346,7 @@ void CLuaClientEntityPairActions::tradeNpc(const sol::object& npcQuery, const so
         return;
     }
 
-    const auto packet      = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ITEM_TRANSFER);
+    const auto packet      = parent_->packets().createPacket<GP_CLI_COMMAND_ITEM_TRANSFER>();
     auto*      tradePacket = packet->as<GP_CLI_COMMAND_ITEM_TRANSFER>();
 
     tradePacket->UniqueNo = npc.value().getID();
@@ -401,7 +404,7 @@ void CLuaClientEntityPairActions::tradeNpc(const sol::object& npcQuery, const so
 
 void CLuaClientEntityPairActions::acceptRaise() const
 {
-    const auto packet                      = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet                      = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      responsePacket              = packet->as<GP_CLI_COMMAND_ACTION>();
     responsePacket->ActionID               = GP_CLI_COMMAND_ACTION_ACTIONID::RaiseMenu;
     responsePacket->HomepointMenu.StatusId = GP_CLI_COMMAND_ACTION_HOMEPOINTMENU::Accept;
@@ -433,7 +436,7 @@ void CLuaClientEntityPairActions::engage(CLuaBaseEntity* mob) const
     controller->setLastAttackTime(timer::now() - 30s);
 
     // 4. Send packet to engage
-    const auto packet       = parent_->packets().createPacket(PacketC2S::GP_CLI_COMMAND_ACTION);
+    const auto packet       = parent_->packets().createPacket<GP_CLI_COMMAND_ACTION>();
     auto*      attackPacket = packet->as<GP_CLI_COMMAND_ACTION>();
     attackPacket->UniqueNo  = mob->getID();
     attackPacket->ActIndex  = mob->getTargID();
@@ -506,6 +509,69 @@ void CLuaClientEntityPairActions::skillchain(CLuaBaseEntity* target, sol::variad
     }
 }
 
+void CLuaClientEntityPairActions::moveItem(const uint8 srcContainer, const uint8 srcSlot, const uint8 dstContainer, const uint32 quantity, const sol::optional<uint8> dstSlot) const
+{
+    const auto packet = parent_->packets().createPacket<GP_CLI_COMMAND_ITEM_MOVE>();
+    auto*      p      = packet->as<GP_CLI_COMMAND_ITEM_MOVE>();
+    p->ItemNum        = quantity;
+    p->Category1      = srcContainer;
+    p->Category2      = dstContainer;
+    p->ItemIndex1     = srcSlot;
+    p->ItemIndex2     = dstSlot.value_or(0xFF);
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
+void CLuaClientEntityPairActions::sortContainer(const uint8 container) const
+{
+    const auto packet = parent_->packets().createPacket<GP_CLI_COMMAND_ITEM_STACK>();
+    auto*      p      = packet->as<GP_CLI_COMMAND_ITEM_STACK>();
+    p->Category       = container;
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
+void CLuaClientEntityPairActions::dropItem(const uint8 container, const uint8 slot, const uint32 quantity) const
+{
+    const auto packet = parent_->packets().createPacket<GP_CLI_COMMAND_ITEM_DUMP>();
+    auto*      p      = packet->as<GP_CLI_COMMAND_ITEM_DUMP>();
+    p->ItemNum        = quantity;
+    p->Category       = container;
+    p->ItemIndex      = slot;
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
+void CLuaClientEntityPairActions::setLockstyle(const uint8 mode, sol::optional<sol::table> items) const
+{
+    const auto packet = parent_->packets().createPacket<GP_CLI_COMMAND_LOCKSTYLE>();
+    auto*      p      = packet->as<GP_CLI_COMMAND_LOCKSTYLE>();
+    p->Mode           = mode;
+    p->Count          = 0;
+
+    if (items.has_value())
+    {
+        uint8 idx = 0;
+        for (const auto& [key, val] : items.value())
+        {
+            if (!val.is<sol::table>() || idx >= 16)
+            {
+                break;
+            }
+
+            auto entry              = val.as<sol::table>();
+            p->Items[idx].ItemNo    = entry.get_or<uint16_t>("itemId", 0);
+            p->Items[idx].EquipKind = entry.get_or<uint8_t>("slot", 0);
+            p->Items[idx].ItemIndex = 0;
+            p->Items[idx].Category  = 0;
+            ++idx;
+        }
+        p->Count = idx;
+    }
+
+    parent_->packets().sendBasicPacket(*packet);
+}
+
 void CLuaClientEntityPairActions::Register()
 {
     SOL_USERTYPE("CClientEntityPairActions", CLuaClientEntityPairActions);
@@ -524,4 +590,8 @@ void CLuaClientEntityPairActions::Register()
     SOL_REGISTER("acceptRaise", CLuaClientEntityPairActions::acceptRaise);
     SOL_REGISTER("engage", CLuaClientEntityPairActions::engage);
     SOL_REGISTER("skillchain", CLuaClientEntityPairActions::skillchain);
+    SOL_REGISTER("moveItem", CLuaClientEntityPairActions::moveItem);
+    SOL_REGISTER("sortContainer", CLuaClientEntityPairActions::sortContainer);
+    SOL_REGISTER("dropItem", CLuaClientEntityPairActions::dropItem);
+    SOL_REGISTER("setLockstyle", CLuaClientEntityPairActions::setLockstyle);
 }

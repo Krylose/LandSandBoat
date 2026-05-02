@@ -24,6 +24,8 @@
 #include "lua_battlefield.h"
 #include "lua_instance.h"
 #include "lua_item.h"
+
+#include "items/exdata/worn_item.h"
 #include "lua_spell.h"
 #include "lua_statuseffect.h"
 #include "lua_trade_container.h"
@@ -4168,8 +4170,7 @@ auto CLuaBaseEntity::addItem(sol::variadic_args va) const -> CItem*
     player:addItem({ id = itemID, quantity  = quantity               }) -- add quantity of itemID
     player:addItem({ id = itemID, silent    = true                   }) -- silently add 1 of itemID
     player:addItem({ id = itemID, signature = "Char"                 }) -- add 1 signed of itemID
-    player:addItem({ id = itemID, augments  = { [4] = 5, [10] = 10 } }) -- add 1 of itemID with augment id 4 and 10, with values of 5 and 10, respectively
-    player:addItem({ id = itemID, exdata    = { [10] = 10 }          }) -- add 1 item of itemID, with the exdata at index 10 (0-indexed!) set to 10
+    player:addItem({ id = itemID, exdata    = { ... }                }) -- add 1 of itemID with typed exdata (falls back to raw byte indices)
     */
 
     if (va.get_type(0) == sol::type::table)
@@ -4191,91 +4192,65 @@ auto CLuaBaseEntity::addItem(sol::variadic_args va) const -> CItem*
 
         while (PChar->getStorage(LOC_INVENTORY)->GetFreeSlotsCount() != 0 && quantity > 0)
         {
-            if (CItem* PItem = itemutils::GetItem(id))
-            {
-                PItem->setQuantity(quantity);
-                quantity -= PItem->getStackSize();
-
-                bool silent = table.get_or("silent", false);
-
-                std::string signature;
-                sol::object signatureObj = table["signature"];
-                if (signatureObj.valid() && signatureObj.is<std::string>())
-                {
-                    signature = signatureObj.as<std::string>();
-                }
-
-                if (!signature.empty())
-                {
-                    char encoded[SignatureStringLength];
-
-                    std::memset(&encoded, 0, sizeof(encoded));
-                    PItem->setSignature(EncodeStringSignature(signature, encoded));
-                }
-
-                sol::object appraisalObj = table["appraisal"];
-                if (appraisalObj.get_type() == sol::type::number)
-                {
-                    PItem->setAppraisalID(appraisalObj.as<uint8>());
-                }
-
-                if (PItem->isType(ITEM_EQUIPMENT))
-                {
-                    uint16 trial = table.get_or("trial", 0);
-                    if (trial != 0)
-                    {
-                        ((CItemEquipment*)PItem)->setTrialNumber(trial);
-                    }
-
-                    sol::object augmentsObj = table["augments"];
-                    if (augmentsObj.is<sol::table>())
-                    {
-                        auto augmentsTable = augmentsObj.as<sol::table>();
-                        for (const auto& entryPair : augmentsTable)
-                        {
-                            auto   pair   = entryPair.second.as<sol::table>();
-                            uint16 augid  = pair[0];
-                            uint8  augval = pair[1];
-                            ((CItemEquipment*)PItem)->PushAugment(augid, augval);
-                        }
-                    }
-                }
-
-                sol::object exdataObj = table["exdata"];
-                if (exdataObj.is<sol::table>())
-                {
-                    auto exdataTable = exdataObj.as<sol::table>();
-                    if (!Exdata::fromTable(PItem, exdataTable))
-                    {
-                        for (const auto& [keyObj, valObj] : exdataTable)
-                        {
-                            uint8 index = keyObj.as<uint8>();
-                            uint8 value = valObj.as<uint8>();
-
-                            if (index < CItem::extra_size)
-                            {
-                                PItem->m_extra[index] = value;
-                            }
-                            else
-                            {
-                                ShowWarning("AddItem: Trying to write to invalid exdata index: <%i>", index);
-                            }
-                        }
-                    }
-                }
-
-                SlotID = charutils::AddItem(PChar, LOC_INVENTORY, PItem, silent);
-                if (SlotID == ERROR_SLOTID)
-                {
-                    break;
-                }
-                AddedItem = PItem;
-            }
-            else
+            auto PItem = xi::items::spawn(id);
+            if (PItem == nullptr)
             {
                 ShowWarning("AddItem: Item <%i> is not found in a database", id);
                 break;
             }
+
+            PItem->setQuantity(quantity);
+            quantity -= PItem->getStackSize();
+
+            bool silent = table.get_or("silent", false);
+
+            std::string signature;
+            sol::object signatureObj = table["signature"];
+            if (signatureObj.valid() && signatureObj.is<std::string>())
+            {
+                signature = signatureObj.as<std::string>();
+            }
+
+            if (!signature.empty())
+            {
+                PItem->setSignature(signature);
+            }
+
+            sol::object appraisalObj = table["appraisal"];
+            if (appraisalObj.get_type() == sol::type::number)
+            {
+                PItem->setAppraisalID(appraisalObj.as<uint8>());
+            }
+
+            sol::object exdataObj = table["exdata"];
+            if (exdataObj.is<sol::table>())
+            {
+                auto exdataTable = exdataObj.as<sol::table>();
+                if (!Exdata::fromTable(PItem.get(), exdataTable))
+                {
+                    for (const auto& [keyObj, valObj] : exdataTable)
+                    {
+                        uint8 index = keyObj.as<uint8>();
+                        uint8 value = valObj.as<uint8>();
+
+                        if (index < CItem::extra_size)
+                        {
+                            PItem->m_extra[index] = value;
+                        }
+                        else
+                        {
+                            ShowWarning("AddItem: Trying to write to invalid exdata index: <%i>", index);
+                        }
+                    }
+                }
+            }
+
+            SlotID = charutils::AddItem(PChar, LOC_INVENTORY, std::move(PItem), silent);
+            if (SlotID == ERROR_SLOTID)
+            {
+                break;
+            }
+            AddedItem = PChar->getStorage(LOC_INVENTORY)->GetItem(SlotID);
         }
     }
     else
@@ -4305,60 +4280,26 @@ auto CLuaBaseEntity::addItem(sol::variadic_args va) const -> CItem*
             }
         }
 
-        uint16 augment0    = va.get_type(2) == sol::type::number ? va.get<uint16>(2) : 0;
-        uint8  augment0val = va.get_type(3) == sol::type::number ? va.get<uint8>(3) : 0;
-        uint16 augment1    = va.get_type(4) == sol::type::number ? va.get<uint16>(4) : 0;
-        uint8  augment1val = va.get_type(5) == sol::type::number ? va.get<uint8>(5) : 0;
-        uint16 augment2    = va.get_type(6) == sol::type::number ? va.get<uint16>(6) : 0;
-        uint8  augment2val = va.get_type(7) == sol::type::number ? va.get<uint8>(7) : 0;
-        uint16 augment3    = va.get_type(8) == sol::type::number ? va.get<uint16>(8) : 0;
-        uint8  augment3val = va.get_type(9) == sol::type::number ? va.get<uint8>(9) : 0;
-        uint16 trialNumber = va.get_type(10) == sol::type::number ? va.get<uint16>(10) : 0;
-
         while (PChar->getStorage(LOC_INVENTORY)->GetFreeSlotsCount() != 0 && quantity > 0)
         {
-            if (CItem* PItem = itemutils::GetItem(itemID))
-            {
-                PItem->setQuantity(quantity);
-                quantity -= PItem->getStackSize();
-
-                if (PItem->isType(ITEM_EQUIPMENT))
-                {
-                    if (augment0 != 0)
-                    {
-                        ((CItemEquipment*)PItem)->setAugment(0, augment0, augment0val);
-                    }
-                    if (augment1 != 0)
-                    {
-                        ((CItemEquipment*)PItem)->setAugment(1, augment1, augment1val);
-                    }
-                    if (augment2 != 0)
-                    {
-                        ((CItemEquipment*)PItem)->setAugment(2, augment2, augment2val);
-                    }
-                    if (augment3 != 0)
-                    {
-                        ((CItemEquipment*)PItem)->setAugment(3, augment3, augment3val);
-                    }
-                    if (trialNumber != 0)
-                    {
-                        ((CItemEquipment*)PItem)->setTrialNumber(trialNumber);
-                    }
-                }
-                SlotID = charutils::AddItem(PChar, LOC_INVENTORY, PItem, silence);
-
-                // Paranoid check
-                if (SlotID == ERROR_SLOTID)
-                {
-                    break;
-                }
-                AddedItem = PItem;
-            }
-            else
+            auto PItem = xi::items::spawn(itemID);
+            if (PItem == nullptr)
             {
                 ShowWarning("AddItem: Item <%i> is not found in a database", itemID);
                 break;
             }
+
+            PItem->setQuantity(quantity);
+            quantity -= PItem->getStackSize();
+
+            SlotID = charutils::AddItem(PChar, LOC_INVENTORY, std::move(PItem), silence);
+
+            // Paranoid check
+            if (SlotID == ERROR_SLOTID)
+            {
+                break;
+            }
+            AddedItem = PChar->getStorage(LOC_INVENTORY)->GetItem(SlotID);
         }
     }
 
@@ -4463,7 +4404,8 @@ bool CLuaBaseEntity::delContainerItems(const sol::object& containerID)
     // ensure we unequip equipped items before deletion
     for (uint8 equipmentSlot = 0; equipmentSlot <= 15; equipmentSlot++)
     {
-        if (PChar->equipLoc[equipmentSlot] == location)
+        auto eloc = PChar->equipLocation(equipmentSlot);
+        if (eloc && static_cast<uint8>(eloc->Container) == location)
         {
             // UnequipItem doesn't consider SLOT_MAIN removing SLOT_SUB, so we say to Equip nothing in this equipment slot
             // this is the same thing that equipset_set packet does to remove a slot
@@ -4506,26 +4448,21 @@ bool CLuaBaseEntity::addUsedItem(uint16 itemID)
 
     if (PChar->getStorage(LOC_INVENTORY)->GetFreeSlotsCount() != 0)
     {
-        CItem* PItem = itemutils::GetItem(itemID);
-
-        if (PItem != nullptr)
+        auto PItem = xi::items::spawn(itemID);
+        if (PItem == nullptr)
         {
-            if (PItem->isSubType(ITEM_CHARGED))
-            {
-                auto* PUsable = static_cast<CItemUsable*>(PItem);
-                PUsable->setQuantity(1);
-                PUsable->setLastUseTime(timer::now());
-                SlotID = charutils::AddItem(PChar, LOC_INVENTORY, PUsable, false);
-            }
-            else
-            {
-                ShowWarning("addUsedItem: tried to setLastUseTime but itemID <%i> is not type ITEM_CHARGED", itemID);
-                destroy(PItem);
-            }
+            ShowWarning("AddItem: Item <%i> is not found in a database", itemID);
+        }
+        else if (!PItem->isSubType(ITEM_CHARGED))
+        {
+            ShowWarning("addUsedItem: tried to setLastUseTime but itemID <%i> is not type ITEM_CHARGED", itemID);
         }
         else
         {
-            ShowWarning("AddItem: Item <%i> is not found in a database", itemID);
+            auto* PUsable = static_cast<CItemUsable*>(PItem.get());
+            PUsable->setQuantity(1);
+            PUsable->setLastUseTime(timer::now());
+            SlotID = charutils::AddItem(PChar, LOC_INVENTORY, std::move(PItem), false);
         }
     }
 
@@ -4539,18 +4476,16 @@ bool CLuaBaseEntity::addUsedItem(uint16 itemID)
  *  Notes   : Used mainly for Testimonies and BCNM orbs
  ************************************************************************/
 
-uint8 CLuaBaseEntity::getWornUses(uint16 itemID)
+auto CLuaBaseEntity::getWornUses(const uint16 itemID) const -> uint8
 {
-    auto* PChar  = static_cast<CCharEntity*>(m_PBaseEntity);
-    uint8 slotID = PChar->getStorage(LOC_INVENTORY)->SearchItem(itemID);
-
+    const auto* PChar  = static_cast<CCharEntity*>(m_PBaseEntity);
+    const uint8 slotID = PChar->getStorage(LOC_INVENTORY)->SearchItem(itemID);
     if (slotID != ERROR_SLOTID)
     {
         CItem* PItem = PChar->getStorage(LOC_INVENTORY)->GetItem(slotID);
-
         if (PItem != nullptr)
         {
-            return PItem->m_extra[0];
+            return PItem->exdata<Exdata::WornItem>().UseCount;
         }
     }
 
@@ -4564,35 +4499,23 @@ uint8 CLuaBaseEntity::getWornUses(uint16 itemID)
  *  Notes   : Prevent Orbs and Testimonies from being used again
  ************************************************************************/
 
-uint8 CLuaBaseEntity::incrementItemWear(uint16 itemID)
+auto CLuaBaseEntity::incrementItemWear(const uint16 itemID) const -> uint8
 {
-    auto* PChar  = static_cast<CCharEntity*>(m_PBaseEntity);
-    uint8 slotID = PChar->getStorage(LOC_INVENTORY)->SearchItem(itemID);
-
+    const auto* PChar  = static_cast<CCharEntity*>(m_PBaseEntity);
+    const uint8 slotID = PChar->getStorage(LOC_INVENTORY)->SearchItem(itemID);
     if (slotID != ERROR_SLOTID)
     {
         CItem* PItem = PChar->getStorage(LOC_INVENTORY)->GetItem(slotID);
-
         if (PItem == nullptr)
         {
             return 0;
         }
 
-        if (PItem->m_extra[0] == UINT8_MAX)
-        {
-            return PItem->m_extra[0];
-        }
+        auto& useCount = PItem->exdata<Exdata::WornItem>().UseCount;
+        useCount       = std::min<uint8>(useCount + 1, UINT8_MAX);
+        PItem->setDirty(true);
 
-        ++PItem->m_extra[0];
-
-        const char* Query = "UPDATE char_inventory "
-                            "SET extra = ? "
-                            "WHERE charid = ? AND location = ? AND slot = ? "
-                            "LIMIT 1";
-
-        db::preparedStmt(Query, PItem->m_extra, PChar->id, PItem->getLocationID(), PItem->getSlotID());
-
-        return PItem->m_extra[0];
+        return useCount;
     }
 
     return 0;
@@ -4620,17 +4543,15 @@ bool CLuaBaseEntity::addTempItem(uint16 itemID, const sol::object& arg1)
 
     if (PChar->getStorage(LOC_TEMPITEMS)->GetFreeSlotsCount() != 0 && quantity != 0)
     {
-        CItem* PItem = itemutils::GetItem(itemID);
-
-        if (PItem != nullptr)
+        auto PItem = xi::items::spawn(itemID);
+        if (PItem == nullptr)
         {
-            PItem->setQuantity(quantity);
-
-            SlotID = charutils::AddItem(PChar, LOC_TEMPITEMS, PItem);
+            ShowWarning("AddItem: Item <%i> is not found in a database", itemID);
         }
         else
         {
-            ShowWarning("AddItem: Item <%i> is not found in a database", itemID);
+            PItem->setQuantity(quantity);
+            SlotID = charutils::AddItem(PChar, LOC_TEMPITEMS, std::move(PItem));
         }
     }
 
@@ -4908,50 +4829,53 @@ bool CLuaBaseEntity::addLinkpearl(const std::string& lsname, bool equip)
         return false;
     }
 
-    CCharEntity*    PChar          = (CCharEntity*)m_PBaseEntity;
-    CItemLinkshell* PItemLinkPearl = PChar->m_GMlevel > 0 ? (CItemLinkshell*)itemutils::GetItem(514) : (CItemLinkshell*)itemutils::GetItem(515);
-    LSTYPE          lstype         = PChar->m_GMlevel > 0 ? LSTYPE_PEARLSACK : LSTYPE_LINKPEARL;
-    if (PItemLinkPearl != nullptr)
+    CCharEntity* PChar  = (CCharEntity*)m_PBaseEntity;
+    auto         PItem  = xi::items::spawn(PChar->m_GMlevel > 0 ? 514 : 515);
+    LSTYPE       lstype = PChar->m_GMlevel > 0 ? LSTYPE_PEARLSACK : LSTYPE_LINKPEARL;
+    if (PItem == nullptr)
     {
-        const auto rset = db::preparedStmt("SELECT linkshellid, color FROM linkshells WHERE name = ? AND broken = 0", lsname);
-        if (rset && rset->rowsCount() && rset->next())
-        {
-            // build linkpearl
-            char EncodedString[LinkshellStringLength];
-
-            std::memset(&EncodedString, 0, sizeof(EncodedString));
-            EncodeStringLinkshell(lsname, EncodedString);
-            ((CItem*)PItemLinkPearl)->setSignature(EncodedString);
-            PItemLinkPearl->SetLSID(rset->get<uint32>("linkshellid"));
-            PItemLinkPearl->SetLSColor(rset->get<uint16>("color"));
-            PItemLinkPearl->SetLSType(lstype);
-            PItemLinkPearl->setQuantity(1);
-            if (charutils::AddItem(PChar, LOC_INVENTORY, PItemLinkPearl) != ERROR_SLOTID)
-            {
-                // equip linkpearl to slot 2
-                if (equip)
-                {
-                    linkshell::AddOnlineMember(PChar, PItemLinkPearl, 2);
-                    PItemLinkPearl->setSubType(ITEM_LOCKED);
-                    PChar->equip[SLOT_LINK2]    = PItemLinkPearl->getSlotID();
-                    PChar->equipLoc[SLOT_LINK2] = LOC_INVENTORY;
-                    PChar->pushPacket<GP_SERV_COMMAND_ITEM_LIST>(PItemLinkPearl, ItemLockFlg::Linkshell);
-                    charutils::SaveCharEquip(PChar);
-                    PChar->pushPacket<GP_SERV_COMMAND_GROUP_COMLINK>(PChar, PItemLinkPearl->GetLSID());
-                    PChar->pushPacket<GP_SERV_COMMAND_ITEM_ATTR>(PItemLinkPearl, LOC_INVENTORY, PItemLinkPearl->getSlotID());
-                    PChar->pushPacket<GP_SERV_COMMAND_ITEM_SAME>(PChar);
-                    charutils::LoadInventory(PChar);
-                }
-                return true;
-            }
-        }
-        else
-        {
-            // Linkshell not found, clean up
-            destroy(PItemLinkPearl);
-        }
+        return false;
     }
-    return false;
+    auto* PItemLinkPearl = static_cast<CItemLinkshell*>(PItem.get());
+
+    const auto rset = db::preparedStmt("SELECT linkshellid, color FROM linkshells WHERE name = ? AND broken = 0", lsname);
+    if (!rset || !rset->rowsCount() || !rset->next())
+    {
+        return false;
+    }
+
+    PItemLinkPearl->setSignature(lsname);
+    PItemLinkPearl->SetLSID(rset->get<uint32>("linkshellid"));
+    PItemLinkPearl->SetLSColor(rset->get<uint16>("color"));
+    PItemLinkPearl->SetLSType(lstype);
+    PItemLinkPearl->setQuantity(1);
+
+    const uint8 slotID = charutils::AddItem(PChar, LOC_INVENTORY, std::move(PItem));
+    if (slotID == ERROR_SLOTID)
+    {
+        return false;
+    }
+
+    if (equip)
+    {
+        auto* PInserted = static_cast<CItemLinkshell*>(PChar->getStorage(LOC_INVENTORY)->GetItem(slotID));
+        linkshell::AddOnlineMember(PChar, PInserted, 2);
+        PInserted->setSubType(ITEM_LOCKED);
+        if (!PChar->bindEquip(SLOT_LINK2, PInserted))
+        {
+            linkshell::DelOnlineMember(PChar, PInserted);
+            PInserted->setSubType(ITEM_UNLOCKED);
+            return false;
+        }
+
+        PChar->pushPacket<GP_SERV_COMMAND_ITEM_LIST>(PInserted, ItemLockFlg::Linkshell);
+        charutils::SaveCharEquip(PChar);
+        PChar->pushPacket<GP_SERV_COMMAND_GROUP_COMLINK>(PChar, PInserted->GetLSID());
+        PChar->pushPacket<GP_SERV_COMMAND_ITEM_ATTR>(PInserted, LOC_INVENTORY, PInserted->getSlotID());
+        PChar->pushPacket<GP_SERV_COMMAND_ITEM_SAME>(PChar);
+        charutils::LoadInventory(PChar);
+    }
+    return true;
 }
 
 /************************************************************************
@@ -5140,7 +5064,7 @@ bool CLuaBaseEntity::canEquipItem(uint16 itemID, const sol::object& chkLevel)
 
     bool checkLevel = (chkLevel != sol::lua_nil) ? chkLevel.as<bool>() : false;
 
-    auto* PItem = static_cast<CItemEquipment*>(itemutils::GetItemPointer(itemID));
+    auto* PItem = xi::items::lookup<CItemEquipment>(itemID);
     auto* PChar = static_cast<CBattleEntity*>(m_PBaseEntity);
 
     if (PItem == nullptr)
@@ -5605,11 +5529,11 @@ void CLuaBaseEntity::retrieveItemFromSlip(uint16 slipId, uint16 itemId, uint16 e
 
     db::preparedStmt(Query, slip->m_extra, PChar->id, slip->getLocationID(), slip->getSlotID());
 
-    auto* item = itemutils::GetItem(itemId);
+    auto item = xi::items::spawn(itemId);
     if (item)
     {
         item->setQuantity(1);
-        charutils::AddItem(PChar, LOC_INVENTORY, item);
+        charutils::AddItem(PChar, LOC_INVENTORY, std::move(item));
     }
     else
     {
@@ -6781,7 +6705,7 @@ void CLuaBaseEntity::changeJob(uint8 newJob)
         PMob->SetMJob(newJob);
 
         // Change weapon type based on new job
-        CItemWeapon* PWeapon = new CItemWeapon(0);
+        CItemWeapon* PWeapon = std::make_unique<CItemWeapon>(0).release();
         PWeapon->setDelay(4000);
         PWeapon->setBaseDelay(4000);
 
@@ -9115,7 +9039,7 @@ void CLuaBaseEntity::addExp(uint32 exp)
 
     auto* PChar = static_cast<CCharEntity*>(m_PBaseEntity);
 
-    charutils::AddExperiencePoints(false, PChar, m_PBaseEntity, exp);
+    charutils::AddExperiencePoints(false, false, true, PChar, m_PBaseEntity, exp);
 }
 
 /************************************************************************
@@ -13117,40 +13041,23 @@ uint16 CLuaBaseEntity::getBaseWeaponDelay(uint16 slot)
  *  Notes   :
  ************************************************************************/
 
-uint16 CLuaBaseEntity::getBaseDelay()
+auto CLuaBaseEntity::getBaseDelay() -> uint16
 {
-    CCharEntity*   PCharEntity   = dynamic_cast<CCharEntity*>(m_PBaseEntity);
-    CBattleEntity* PBattleEntity = dynamic_cast<CBattleEntity*>(m_PBaseEntity);
-    uint16         baseDelay     = 480; // h2h "unequipped" base delay
+    uint16 baseDelay = 0;
 
-    if (PCharEntity)
+    if (m_PBaseEntity == nullptr)
     {
-        CItemWeapon* PMainWeapon = dynamic_cast<CItemWeapon*>(PCharEntity->getEquip(SLOT_MAIN));
-        CItemWeapon* PSubWeapon  = dynamic_cast<CItemWeapon*>(PCharEntity->getEquip(SLOT_SUB));
-
-        if (PMainWeapon)
-        {
-            if (PMainWeapon->getSkillType() == SKILLTYPE::SKILL_HAND_TO_HAND)
-            {
-                baseDelay = PMainWeapon->getBaseDelay(); // h2h items include 480 base delay
-            }
-            else
-            {
-                baseDelay = PMainWeapon->getBaseDelay();
-                if (PSubWeapon)
-                {
-                    baseDelay += PSubWeapon->getBaseDelay();
-                }
-            }
-        }
+        ShowWarning("CLuaBaseEntity::getBaseDelay() - Entity called is nullptr (%s).");
+        return 0;
     }
-    else if (PBattleEntity)
+
+    if (CCharEntity* PCharEntity = dynamic_cast<CCharEntity*>(m_PBaseEntity))
     {
-        CItemWeapon* PWeapon = dynamic_cast<CItemWeapon*>(PBattleEntity->m_Weapons[SLOT_MAIN]);
-        if (PWeapon)
-        {
-            baseDelay = std::round(PWeapon->getBaseDelay() * 60.0 / 1000.0); // there is some precision loss that results in delays of 319.98 instead of 320, etc, so round to nearest.
-        }
+        baseDelay = battleutils::GetBaseDelay(PCharEntity);
+    }
+    else if (CBattleEntity* PBattleEntity = dynamic_cast<CBattleEntity*>(m_PBaseEntity))
+    {
+        baseDelay = battleutils::GetBaseDelay(PBattleEntity);
     }
 
     return baseDelay;
@@ -13163,41 +13070,26 @@ uint16 CLuaBaseEntity::getBaseDelay()
  *  Notes   :
  ************************************************************************/
 
-uint16 CLuaBaseEntity::getBaseRangedDelay()
+auto CLuaBaseEntity::getBaseRangedDelay() -> uint16
 {
-    CCharEntity*   PCharEntity   = dynamic_cast<CCharEntity*>(m_PBaseEntity);
-    CBattleEntity* PBattleEntity = dynamic_cast<CBattleEntity*>(m_PBaseEntity);
-    uint16         baseDelay     = 0; // return 0 if not able to actually ranged attack
+    uint16 baseRangedDelay = 0;
 
-    if (PCharEntity)
+    if (m_PBaseEntity == nullptr)
     {
-        CItemWeapon* PRangedWeapon = dynamic_cast<CItemWeapon*>(PCharEntity->getEquip(SLOT_RANGED));
-        CItemWeapon* PAmmo         = dynamic_cast<CItemWeapon*>(PCharEntity->getEquip(SLOT_AMMO));
-
-        if (PRangedWeapon && PRangedWeapon->isRanged())
-        {
-            if (PRangedWeapon->isThrowing()) // Throwing, like Chakram/Boomerang in ranged slot
-            {
-                baseDelay = PRangedWeapon->getBaseDelay();
-            }
-            else if (PAmmo) // Bow/gun etc, but only valid if Ammo is equipped.
-            {
-                baseDelay = PRangedWeapon->getBaseDelay() + PAmmo->getBaseDelay();
-            }
-        }
-        else if (PAmmo && PAmmo->isRanged()) // Throwing, Pebble/Shuriken in ammo slot
-        {
-            baseDelay = PAmmo->getBaseDelay();
-        }
-    }
-    else if (PBattleEntity)
-    {
-        baseDelay = 260; // TODO: There does not seem to be a real way to get the delay of a ranged attack of a non-PC.
-                         // 260 delay is derived from a Goblin Hunter using a ranged attack, using Dark Seal Absorb TP to reverse the delay.
-                         // The cast gave back 40 TP, which is half of 80 TP due to 50% dAGI penalty being maxed out.
+        ShowWarning("CLuaBaseEntity::getBaseRangedDelay() - Entity called is nullptr (%s).");
+        return 0;
     }
 
-    return baseDelay;
+    if (CCharEntity* PCharEntity = dynamic_cast<CCharEntity*>(m_PBaseEntity))
+    {
+        baseRangedDelay = battleutils::GetBaseRangedDelay(PCharEntity);
+    }
+    else if (CBattleEntity* PBattleEntity = dynamic_cast<CBattleEntity*>(m_PBaseEntity))
+    {
+        baseRangedDelay = battleutils::GetBaseRangedDelay(PBattleEntity);
+    }
+
+    return baseRangedDelay;
 }
 
 /************************************************************************
@@ -16563,7 +16455,7 @@ auto CLuaBaseEntity::hasAttachment(const uint16 itemID) const -> bool
         return false;
     }
 
-    CItem* PItem = itemutils::GetItemPointer(itemID);
+    const CItem* PItem = xi::items::lookup(itemID);
     return puppetutils::HasAttachment(static_cast<CCharEntity*>(m_PBaseEntity), PItem);
 }
 
@@ -16712,7 +16604,7 @@ auto CLuaBaseEntity::unlockAttachment(const uint16 itemID) const -> bool
         return false;
     }
 
-    CItem* PItem = itemutils::GetItemPointer(itemID);
+    const CItem* PItem = xi::items::lookup(itemID);
     return puppetutils::UnlockAttachment(static_cast<CCharEntity*>(m_PBaseEntity), PItem);
 }
 
@@ -16779,7 +16671,7 @@ void CLuaBaseEntity::removeAllManeuvers() const
  *  Example : pet:getAttachment(1)
  ************************************************************************/
 
-auto CLuaBaseEntity::getAttachment(const uint8 slotId) const -> CItem*
+auto CLuaBaseEntity::getAttachment(const uint8 slotId) const -> const CItem*
 {
     auto* PAutomaton = dynamic_cast<CAutomatonEntity*>(m_PBaseEntity);
 
@@ -16792,7 +16684,7 @@ auto CLuaBaseEntity::getAttachment(const uint8 slotId) const -> CItem*
     uint8 slotItem = PAutomaton->getAttachment(slotId);
     if (slotItem != 0)
     {
-        return itemutils::GetItemPointer(0x2100 + slotItem); // TODO: Stop storing by offset
+        return xi::items::lookup(0x2100 + slotItem); // TODO: Stop storing by offset
     }
 
     return nullptr;
@@ -16842,7 +16734,7 @@ auto CLuaBaseEntity::getAttachments() const -> sol::table
 
         if (attachmentItemId != 0)
         {
-            attachmentTable[attachmentSlot] = CLuaItem(itemutils::GetItemPointer(0x2100 + attachmentItemId));
+            attachmentTable[attachmentSlot] = CLuaItem(xi::items::lookup(0x2100 + attachmentItemId));
         }
     }
 
@@ -17102,7 +16994,7 @@ void CLuaBaseEntity::setMobLevel(uint8 level, sol::optional<bool> recover)
 /************************************************************************
  *  Function: getEcosystem()
  *  Purpose : Returns integer value of system associated with an Entity
- *  Example : if pet:getEcosystem() ~= xi.ecosystem.AVATAR then -- Not an avatar
+ *  Example : if pet:getEcosystem() ~= xi.ecosystem.ELEMENTAL then -- Not an elemental
  *  Notes   :
  ************************************************************************/
 
@@ -19417,8 +19309,7 @@ bool CLuaBaseEntity::setChocoboRaisingInfo(const sol::table& table)
                         "weather_preference = ?, "
                         "hunger = ?, "
                         "care_plan = ?, "
-                        "held_item = ? "
-                        "LIMIT 1";
+                        "held_item = ? ";
 
     const auto rset = db::preparedStmt(Query,
                                        m_PBaseEntity->id,
