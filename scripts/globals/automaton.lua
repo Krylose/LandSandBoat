@@ -117,12 +117,13 @@ local attachmentModifiers =
                                 { xi.mod.REGEN,                       {   nil,   nil,   nil,   nil }, true  }, },
     ['coiler']              = { { xi.mod.DOUBLE_ATTACK,               {     3,    10,    20,    30 }, true  }, },
     ['coiler_ii']           = { { xi.mod.DOUBLE_ATTACK,               {    10,    15,    25,    35 }, true  }, },
-    ['damage_gauge']        = { { xi.mod.AUTO_HEALING_THRESHOLD,      {    30,    40,    50,    75 }, true  },
-                                { xi.mod.AUTO_HEALING_DELAY,          {     3,     6,     8,    10 }, false }, },
+    ['damage_gauge']        = { { xi.mod.AUTO_HEALING_THRESHOLD,      {    50,    60,    70,    85 }, true  },
+                                { xi.mod.AUTO_HEALING_DELAY,          {     0,     3,     6,     9 }, false }, },
     ['drum_magazine']       = { { xi.mod.AUTO_RANGED_DELAY,           {     3,     6,     9,    15 }, true  }, },
     ['dynamo']              = { { xi.mod.CRITHITRATE,                 {     3,     5,     7,     9 }, true  }, },
     ['dynamo_ii']           = { { xi.mod.CRITHITRATE,                 {     5,    10,    15,    20 }, true  }, },
     ['dynamo_iii']          = { { xi.mod.CRITHITRATE,                 {    10,    15,    25,    35 }, true  }, },
+    ['flame_holder']        = { { xi.mod.WEAPONSKILL_DAMAGE_BASE,     {   125,   200,   275,   350 }, true  }, },
     ['equalizer']           = { { xi.mod.AUTO_EQUALIZER,              {    10,    25,    50,    75 }, true  }, },
     ['galvanizer']          = { { xi.mod.COUNTER,                     {    10,    20,    35,    50 }, true  }, },
     ['hammermill']          = { { xi.mod.SHIELD_BASH,                 {    15,    25,    50,   100 }, true  },
@@ -255,6 +256,36 @@ local function calculatePerformanceBoost(pet)
     end
 
     return performanceBoost
+end
+
+-- Return the base damage of an Automaton Ranged Attack, factoring in the AUTO_RANGED_DAMAGEP modifier.
+xi.automaton.getRangedBaseDamage = function(automaton)
+    return automaton:getRangedDmg() * (1 + automaton:getMod(xi.mod.AUTO_RANGED_DAMAGEP) / 100)
+end
+
+-- Returns the number of extra hits granted by the DOUBLE_ATTACK modifier based on the base number of hits.
+xi.automaton.getExtraHits = function(automaton, numHits)
+    local doubleAttackRate = utils.clamp(automaton:getMod(xi.mod.DOUBLE_ATTACK), 0, 100)
+    local extraHits        = 0
+    if doubleAttackRate > 0 then
+        for _ = 1, numHits do
+            if math.random(1, 100) <= doubleAttackRate then
+                extraHits = extraHits + 1
+            end
+        end
+    end
+
+    return extraHits
+end
+
+-- Applies the FTP multiplier for an Automaton Weapon Skill, factoring in the WEAPONSKILL_DAMAGE_BASE modifier from Flame Holder.
+xi.automaton.applyFlameHolder = function(automaton, ftp)
+    local flameHolderFTP = automaton:getMod(xi.mod.WEAPONSKILL_DAMAGE_BASE) / 100
+    if flameHolderFTP > 0 then
+        ftp[1] = ftp[1] * flameHolderFTP
+        ftp[2] = ftp[2] * flameHolderFTP
+        ftp[3] = ftp[3] * flameHolderFTP
+    end
 end
 
 -- Global functions to handle attachment equip, unequip, maneuver and performance changes

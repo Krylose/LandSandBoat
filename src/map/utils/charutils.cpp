@@ -54,6 +54,7 @@
 #include "packets/s2c/0x061_clistatus.h"
 #include "packets/s2c/0x062_clistatus2.h"
 #include "packets/s2c/0x0ac_command_data.h"
+#include "packets/s2c/0x0ad_dungeon.h"
 #include "packets/s2c/0x0e0_group_comlink.h"
 #include "packets/s2c/0x119_abil_recast.h"
 
@@ -68,6 +69,7 @@
 #include "linkshell.h"
 #include "map_networking.h"
 #include "mob_modifier.h"
+#include "nominate_manager.h"
 #include "recast_container.h"
 #include "roe.h"
 #include "spell.h"
@@ -78,6 +80,7 @@
 #include "unitychat.h"
 #include "universal_container.h"
 #include "weapon_skill.h"
+#include "zone.h"
 
 #include "entities/automatonentity.h"
 #include "entities/charentity.h"
@@ -88,6 +91,7 @@
 #include "blueutils.h"
 #include "charutils.h"
 #include "enums/item_lockflg.h"
+#include "items/transactions/synth.h"
 #include "itemutils.h"
 #include "job_points.h"
 #include "map_engine.h"
@@ -881,7 +885,8 @@ auto LoadChar(Scheduler& scheduler, MapConfig config, const uint32 charId) -> st
     // LoadFromCharUnlocksSQL
     fmtQuery = "SELECT outpost_sandy, outpost_bastok, outpost_windy, runic_portal, maw, "
                "campaign_sandy, campaign_bastok, campaign_windy, homepoints, survivals, "
-               "abyssea_conflux, waypoints, eschan_portals, claimed_deeds, unique_event "
+               "abyssea_conflux, waypoints, eschan_portals, claimed_deeds, unique_event, "
+               "maze_vouchers, maze_runes "
                "FROM char_unlocks "
                "WHERE charid = ?";
 
@@ -904,6 +909,8 @@ auto LoadChar(Scheduler& scheduler, MapConfig config, const uint32 charId) -> st
         db::extractFromBlob(rset, "eschan_portals", PChar->teleport.eschanPortal);
         db::extractFromBlob(rset, "claimed_deeds", PChar->m_claimedDeeds);
         db::extractFromBlob(rset, "unique_event", PChar->m_uniqueEvents);
+        db::extractFromBlob(rset, "maze_vouchers", PChar->maze().vouchers);
+        db::extractFromBlob(rset, "maze_runes", PChar->maze().runes);
     }
 
     // TODO: Remove raw new's
@@ -1026,6 +1033,28 @@ void LoadSpells(CCharEntity* PChar)
             {
                 PChar->m_SpellList.set(spellId);
             }
+        }
+    }
+
+    // Handle trust spells that are enabled via settings.
+    bool hasTrustPermit =
+        charutils::hasKeyItem(PChar, KeyItem::WINDURST_TRUST_PERMIT) ||
+        charutils::hasKeyItem(PChar, KeyItem::BASTOK_TRUST_PERMIT) ||
+        charutils::hasKeyItem(PChar, KeyItem::SAN_DORIA_TRUST_PERMIT);
+
+    if (hasTrustPermit)
+    {
+        static const std::unordered_map<uint8, uint16> trustSpells = {
+            { 1, 1002 }, // Cornelia
+            { 2, 1003 }, // Matsui-P
+        }; // This can be expanded if more trust spells are added as settings options.
+
+        uint8 trustSetting = settings::get<uint8>("main.ENABLE_LIMITED_TIME_TRUST");
+
+        auto it = trustSpells.find(trustSetting);
+        if (it != trustSpells.end())
+        {
+            PChar->m_SpellList.set(it->second);
         }
     }
 }
@@ -1926,6 +1955,20 @@ uint32 UpdateItem(CCharEntity* PChar, uint8 LocationID, uint8 slotID, int32 quan
         {
             return 0;
         }
+    }
+
+    // Equipped ammo decrements its stack on consumption without leaving the slot.
+    const bool isEquippedAmmo = PItem->state() == ItemState::Equipped &&
+                                PChar->getEquip(SLOT_AMMO) == PItem;
+    if (PItem->isBusy() && !isEquippedAmmo && !force)
+    {
+        ShowWarningFmt("UpdateItem: refusing to mutate busy item {} in state {} (loc={}, slot={}, char={})",
+                       ItemID,
+                       magic_enum::enum_name(PItem->state()),
+                       LocationID,
+                       slotID,
+                       PChar->getName());
+        return 0;
     }
 
     uint32 newQuantity = PItem->getQuantity() + quantity;
@@ -2919,6 +2962,15 @@ void AddItemToRecycleBin(CCharEntity* PChar, uint32 container, uint8 slotID, uin
         return;
     }
 
+    if (PSrcItem->isBusy())
+    {
+        ShowWarningFmt("AddItemToRecycleBin: refusing to move busy item {} (state={}, char={})",
+                       PSrcItem->getID(),
+                       magic_enum::enum_name(PSrcItem->state()),
+                       PChar->getName());
+        return;
+    }
+
     const uint16 itemID   = PSrcItem->getID();
     const auto   itemName = PSrcItem->getName();
 
@@ -3052,30 +3104,61 @@ void SaveJobChangeGear(CCharEntity* PChar)
     uint16 ring2  = getEquipIdFromSlot(PChar, SLOT_RING2);
     uint16 back   = getEquipIdFromSlot(PChar, SLOT_BACK);
 
-    db::preparedStmt("REPLACE INTO char_equip_saved SET "
-                     "charid = ?, jobid = ?, main = ?, sub = ?, "
-                     "ranged = ?, ammo = ?, head = ?, body = ?, "
-                     "hands = ?, legs = ?, feet = ?, neck = ?, "
-                     "waist = ?, ear1 = ?, ear2 = ?, ring1 = ?, "
-                     "ring2 = ?, back = ?",
-                     PChar->id,
-                     PChar->GetMJob(),
-                     main,
-                     sub,
-                     ranged,
-                     ammo,
-                     head,
-                     body,
-                     hands,
-                     legs,
-                     feet,
-                     neck,
-                     waist,
-                     ear1,
-                     ear2,
-                     ring1,
-                     ring2,
-                     back);
+    db::preparedStmt(
+        "INSERT INTO char_equip_saved SET "
+        "charid = ?, "
+        "jobid = ?, "
+        "main = ?, "
+        "sub = ?, "
+        "ranged = ?, "
+        "ammo = ?, "
+        "head = ?, "
+        "body = ?, "
+        "hands = ?, "
+        "legs = ?, "
+        "feet = ?, "
+        "neck = ?, "
+        "waist = ?, "
+        "ear1 = ?, "
+        "ear2 = ?, "
+        "ring1 = ?, "
+        "ring2 = ?, "
+        "back = ? "
+        "ON DUPLICATE KEY UPDATE "
+        "main = VALUES(main), "
+        "sub = VALUES(sub), "
+        "ranged = VALUES(ranged), "
+        "ammo = VALUES(ammo), "
+        "head = VALUES(head), "
+        "body = VALUES(body), "
+        "hands = VALUES(hands), "
+        "legs = VALUES(legs), "
+        "feet = VALUES(feet), "
+        "neck = VALUES(neck), "
+        "waist = VALUES(waist), "
+        "ear1 = VALUES(ear1), "
+        "ear2 = VALUES(ear2), "
+        "ring1 = VALUES(ring1), "
+        "ring2 = VALUES(ring2), "
+        "back = VALUES(back)",
+        PChar->id,
+        PChar->GetMJob(),
+        main,
+        sub,
+        ranged,
+        ammo,
+        head,
+        body,
+        hands,
+        legs,
+        feet,
+        neck,
+        waist,
+        ear1,
+        ear2,
+        ring1,
+        ring2,
+        back);
 }
 
 void LoadJobChangeGear(CCharEntity* PChar)
@@ -6661,6 +6744,18 @@ void SaveTeleport(CCharEntity* PChar, TELEPORT_TYPE type)
     }
 }
 
+void SaveMazeUnlocks(CCharEntity* PChar)
+{
+    TracyZoneScoped;
+
+    db::preparedStmt("UPDATE char_unlocks SET maze_vouchers = ?, maze_runes = ? WHERE charid = ? LIMIT 1",
+                     PChar->maze().vouchers,
+                     PChar->maze().runes,
+                     PChar->id);
+
+    PChar->pushPacket<GP_SERV_COMMAND_DUNGEON>(PChar);
+}
+
 void SaveLastLogout(const CCharEntity* PChar)
 {
     TracyZoneScoped;
@@ -7295,7 +7390,7 @@ void SendToZone(CCharEntity* PChar, uint16 zoneId)
     }
 
     // If player somehow gets zoned, force crit fail their synth
-    if (PChar->CraftContainer && PChar->CraftContainer->getItemsCount() > 0)
+    if (PChar->activeTransaction<SynthTransaction>())
     {
         charutils::forceSynthCritFail("SendToZone", PChar);
     }
@@ -7746,26 +7841,53 @@ void WriteHistory(const CCharEntity* PChar)
         return;
     }
 
-    // Replace will also handle insert if it doesn't exist
-    db::preparedStmt("REPLACE INTO char_history "
-                     "(charid, enemies_defeated, times_knocked_out, mh_entrances, joined_parties, joined_alliances, spells_cast, "
-                     "abilities_used, ws_used, items_used, chats_sent, npc_interactions, battles_fought, gm_calls, distance_travelled) "
-                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     PChar->id,
-                     PChar->m_charHistory.enemiesDefeated,
-                     PChar->m_charHistory.timesKnockedOut,
-                     PChar->m_charHistory.mhEntrances,
-                     PChar->m_charHistory.joinedParties,
-                     PChar->m_charHistory.joinedAlliances,
-                     PChar->m_charHistory.spellsCast,
-                     PChar->m_charHistory.abilitiesUsed,
-                     PChar->m_charHistory.wsUsed,
-                     PChar->m_charHistory.itemsUsed,
-                     PChar->m_charHistory.chatsSent,
-                     PChar->m_charHistory.npcInteractions,
-                     PChar->m_charHistory.battlesFought,
-                     PChar->m_charHistory.gmCalls,
-                     PChar->m_charHistory.distanceTravelled);
+    db::preparedStmt(
+        "INSERT INTO char_history SET "
+        "charid = ?, "
+        "enemies_defeated = ?, "
+        "times_knocked_out = ?, "
+        "mh_entrances = ?, "
+        "joined_parties = ?, "
+        "joined_alliances = ?, "
+        "spells_cast = ?, "
+        "abilities_used = ?, "
+        "ws_used = ?, "
+        "items_used = ?, "
+        "chats_sent = ?, "
+        "npc_interactions = ?, "
+        "battles_fought = ?, "
+        "gm_calls = ?, "
+        "distance_travelled = ? "
+        "ON DUPLICATE KEY UPDATE "
+        "enemies_defeated = VALUES(enemies_defeated), "
+        "times_knocked_out = VALUES(times_knocked_out), "
+        "mh_entrances = VALUES(mh_entrances), "
+        "joined_parties = VALUES(joined_parties), "
+        "joined_alliances = VALUES(joined_alliances), "
+        "spells_cast = VALUES(spells_cast), "
+        "abilities_used = VALUES(abilities_used), "
+        "ws_used = VALUES(ws_used), "
+        "items_used = VALUES(items_used), "
+        "chats_sent = VALUES(chats_sent), "
+        "npc_interactions = VALUES(npc_interactions), "
+        "battles_fought = VALUES(battles_fought), "
+        "gm_calls = VALUES(gm_calls), "
+        "distance_travelled = VALUES(distance_travelled)",
+        PChar->id,
+        PChar->m_charHistory.enemiesDefeated,
+        PChar->m_charHistory.timesKnockedOut,
+        PChar->m_charHistory.mhEntrances,
+        PChar->m_charHistory.joinedParties,
+        PChar->m_charHistory.joinedAlliances,
+        PChar->m_charHistory.spellsCast,
+        PChar->m_charHistory.abilitiesUsed,
+        PChar->m_charHistory.wsUsed,
+        PChar->m_charHistory.itemsUsed,
+        PChar->m_charHistory.chatsSent,
+        PChar->m_charHistory.npcInteractions,
+        PChar->m_charHistory.battlesFought,
+        PChar->m_charHistory.gmCalls,
+        PChar->m_charHistory.distanceTravelled);
 }
 
 uint8 getMaxItemLevel(CCharEntity* PChar)
@@ -7933,10 +8055,8 @@ void forceSynthCritFail(const std::string& sourceFunction, CCharEntity* PChar)
     // The broken rod can never be lost in a normal failed synth. It will only be lost if the synth is
     // interrupted in some way, such as by being attacked or moving to another area (e.g. ship docking).
 
-    ShowWarning("%s: %s attempting to zone in the middle of a synth, failing their synth!", sourceFunction, PChar->getName());
+    ShowWarning("%s: Force crit-failing %s synthesis!", sourceFunction, PChar->getName());
     synthutils::doSynthCriticalFail(PChar);
-
-    PChar->CraftContainer->Clean(); // Clean to reset m_ItemCount to 0
 }
 
 void removeCharFromZone(CCharEntity* PChar)
@@ -7949,6 +8069,14 @@ void removeCharFromZone(CCharEntity* PChar)
 
     PChar->TradePending.clean();
     PChar->InvitePending.clean();
+
+    if (PChar->loc.zone != nullptr)
+    {
+        if (auto* manager = PChar->loc.zone->nominateManager())
+        {
+            manager->onCharLeavingZone(PChar);
+        }
+    }
 
     PChar->WideScanTarget = std::nullopt;
 
@@ -8165,6 +8293,13 @@ void ApplyAbilityRecast(CCharEntity* PChar, const CAbility* PAbility, const Char
     if (settings::get<bool>("map.BLOOD_PACT_SHARED_TIMER") && (recastId == Recast::BloodPactRage || recastId == Recast::BloodPactWard))
     {
         PChar->PRecastContainer->Add(RECAST_ABILITY, (recastId == Recast::BloodPactRage ? Recast::BloodPactWard : Recast::BloodPactRage), recastTime);
+    }
+
+    // Yonin (recastId 146) and Innin share a server-side timer via the SQL recastId update.
+    // Also add Innin's original client-facing recast ID (147) so the client greys out Innin.
+    if (recastId == static_cast<Recast>(146))
+    {
+        PChar->PRecastContainer->Add(RECAST_ABILITY, static_cast<Recast>(147), recastTime);
     }
 
     PChar->pushPacket<GP_SERV_COMMAND_ABIL_RECAST>(PChar);

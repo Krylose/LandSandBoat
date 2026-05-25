@@ -96,6 +96,7 @@ public:
     void entityVisualPacket(const std::string& command, const sol::object& entity) const;
     void entityAnimationPacket(const char* command, const sol::object& target);
     void sendDebugPacket(const sol::table& packetData);
+    void sendLinkshellConcierge(const sol::table& data) const;
 
     void       StartEventHelper(int32 EventID, sol::variadic_args va, EVENT_TYPE eventType);
     EventInfo* ParseEvent(int32 EventID, sol::variadic_args va, EventPrep* eventPreparation, EVENT_TYPE eventType);
@@ -159,6 +160,9 @@ public:
     // int32 RoamAround(lua_Stat* L);       // pick a random point to walk to
     // int32 LimitDistance(lua_Stat* L);    // limits the current path distance to given max distance
     void setCarefulPathing(bool careful);
+
+    bool canSee(const CLuaBaseEntity* PTarget);
+    bool inWater();
 
     void openDoor(const sol::object& seconds);
     void closeDoor(const sol::object& seconds);
@@ -232,6 +236,11 @@ public:
     void   setTeleportMenu(uint16 type, const sol::object& teleportObj);
     auto   getTeleportMenu(uint8 type) -> sol::table;
     void   setHomePoint();
+
+    void learnMazeVoucher(uint8 voucherId);
+    auto hasMazeVoucher(uint8 voucherId) -> bool;
+    void learnMazeRune(uint16 runeId);
+    auto hasMazeRune(uint16 runeId) -> bool;
 
     void resetPlayer(const char* charName);
 
@@ -836,9 +845,11 @@ public:
 
     // Mob Entity-Specific
     void   setMobLevel(uint8 level, sol::optional<bool> recover);
+    uint8  getStatRank(uint8 statType);
+    void   setStatRank(uint8 statType, uint8 rank);
     uint8  getEcosystem();
-    uint16 getSuperFamily();
     uint16 getFamily();
+    uint16 getSpecies();
     auto   isMobType(uint8 mobType) const -> bool; // True if mob is of type passed to function
     bool   isUndead();
     bool   isNM();
@@ -881,6 +892,8 @@ public:
     auto hasSpellList() const -> bool;
     void setSpellList(uint16 spellListId) const;
     void setAutoAttackEnabled(bool state);   // halts/resumes auto attack of entity
+    void setRangedAttackEnabled(bool state); // halts/resumes ranged auto attack of entity
+    bool isRangedAttackEnabled();            // returns whether ranged auto attack is enabled
     void setMagicCastingEnabled(bool state); // halt/resumes casting magic
     void setMobAbilityEnabled(bool state);   // halt/resumes mob skills
     void setMobSkillAttack(int16 listId);    // enable/disable using mobskills as regular attacks
