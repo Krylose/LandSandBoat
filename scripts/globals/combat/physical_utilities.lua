@@ -644,6 +644,18 @@ xi.combat.physical.calculateMeleePDIF = function(actor, target, weaponType, wsAt
     -- TODO: do flourish and attack mods come before or after food?
     actorAttack = math.max(1, math.floor(actor:getStat(xi.mod.ATT, weaponSlot) * wsAttackMod * flourishBonus))
 
+    -- handle attuner
+    -- note: isAutomaton is checked inside xi.automaton.handleAttuner and could be removed
+    if actor:isAutomaton() then
+        local defIgnore = xi.automaton.handleAttuner(actor, target)
+
+        tpFactor = tpFactor + defIgnore
+
+        if tpFactor > 0 then
+            tpIgnoresDefense = true
+        end
+    end
+
     -- Target Defense Modifiers.
     if tpIgnoresDefense then
         local ignoreDefenseFactor = 1 - tpFactor
@@ -1103,7 +1115,12 @@ xi.combat.physical.canParry = function(defender, attacker)
         not defender:hasPreventActionEffect(true) -- Not stunned, slept, etc, but can parry when charmed
     then
         if defender:isPC() then
+            if defender:getSkillRank(xi.skill.PARRY) == 0 then
+                return false
+            end
+
             local mainWeapon = defender:getEquippedItem(xi.slot.MAIN)
+
             if mainWeapon then
                 canParry = mainWeapon:getSkillType() ~= xi.skill.HAND_TO_HAND
             end
@@ -1359,7 +1376,7 @@ xi.combat.physical.isBlocked = function(defender, attacker)
         if
             defender:isPC() and
             (blocked or                                  -- We blocked
-            not xi.settings.map.PARRY_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
+            not xi.settings.map.DEFENSIVE_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
         then
             defender:trySkillUp(xi.skill.SHIELD, attacker:getMainLvl())
         end
@@ -1398,7 +1415,7 @@ xi.combat.physical.isParried = function(defender, attacker)
         if
             isPC and
             (parried or                                  -- We parried
-            not xi.settings.map.PARRY_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
+            not xi.settings.map.DEFENSIVE_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
         then
             defender:trySkillUp(xi.skill.PARRY, attacker:getMainLvl())
         end
@@ -1426,7 +1443,7 @@ xi.combat.physical.isGuarded = function(defender, attacker)
         if
             isPC and
             (guarded or                                  -- We guarded
-            not xi.settings.map.PARRY_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
+            not xi.settings.map.DEFENSIVE_OLD_SKILLUP_STYLE) -- Old style skillup is not enabled
         then
             defender:trySkillUp(xi.skill.GUARD, attacker:getMainLvl())
         end
