@@ -39,3 +39,4 @@
 # Live example:
 
 custom/lua/test_npcs_in_gm_home.lua
+era/lua/data/fame_rank_points.lua
