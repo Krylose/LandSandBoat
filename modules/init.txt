@@ -39,4 +39,9 @@
 # Live example:
 
 custom/lua/test_npcs_in_gm_home.lua
+era/lua/actions/spell_adjustments.lua
+era/lua/battlefields/mission_level_caps.lua
 era/lua/data/fame_rank_points.lua
+era/zones/lower_jeuno/npcs/fame_check.lua
+era/zones/southern_san_doria/npcs/fame_check.lua
+
