@@ -19,13 +19,11 @@
 ===========================================================================
 */
 
-#ifndef _NOTORIETYCONTAINER_H
-#define _NOTORIETYCONTAINER_H
+#pragma once
 
 #include <set>
 
 class CBattleEntity;
-class CMobEntity;
 
 // If enmity is a one-to-many list held by monsters,
 // notoriety is the many-to-one opposite list held by players (or other targets of enmity)
@@ -48,5 +46,3 @@ private:
     CBattleEntity*           m_POwner;
     std::set<CBattleEntity*> m_Lookup;
 };
-
-#endif // _NOTORIETYCONTAINER_H

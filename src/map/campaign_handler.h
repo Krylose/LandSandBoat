@@ -19,11 +19,9 @@
 ===========================================================================
 */
 
-#ifndef _CAMPAIGNHANDLER_H
-#define _CAMPAIGNHANDLER_H
+#pragma once
 
 #include "common/cbasetypes.h"
-#include <vector>
 
 class CZone;
 
@@ -141,5 +139,3 @@ private:
     uint8 m_dholeUnion  = 0; // number of players in the Dhole Union for this zone
     uint8 m_elandUnion  = 0; // number of players in the Eland Union for this zone
 };
-
-#endif

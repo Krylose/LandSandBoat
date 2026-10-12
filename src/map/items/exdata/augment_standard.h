@@ -21,13 +21,16 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 #include "enums/exdata.h"
 
 namespace Exdata
 {
+
 #pragma pack(push, 1)
+
 struct Augment
 {
     uint16_t Id : 11;
@@ -44,5 +47,7 @@ struct AugmentStandard
     void toTable(sol::table& table) const;
     void fromTable(const sol::table& data);
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

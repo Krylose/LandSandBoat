@@ -19,18 +19,15 @@
 ===========================================================================
 */
 
-#include "common/logging.h"
 #include "common/settings.h"
 #include "common/utils.h"
 
-#include "ai/ai_container.h"
-#include "alliance.h"
 #include "enmity_container.h"
 #include "entities/battle_entity.h"
 #include "entities/char_entity.h"
 #include "entities/mob_entity.h"
+#include "map_constants.h"
 #include "notoriety_container.h"
-#include "packets/entity_update.h"
 #include "status_effect_container.h"
 #include "utils/battleutils.h"
 #include "utils/zoneutils.h"
@@ -120,7 +117,7 @@ void CEnmityContainer::AddBaseEnmity(CBattleEntity* PChar)
 {
     TracyZoneScoped;
 
-    if (PChar->getZone() != m_EnmityHolder->getZone())
+    if (PChar->getZone() != m_EnmityHolder->getZone() || IgnorePets(PChar))
     {
         return;
     }
@@ -138,15 +135,15 @@ float CEnmityContainer::CalculateEnmityBonus(CBattleEntity* PEntity)
 {
     TracyZoneScoped;
 
-    int enmityBonus = PEntity->getMod(Mod::ENMITY);
+    int enmityBonus = PEntity->getMod(xi::Mod::ENMITY);
 
     if (auto* PChar = dynamic_cast<CCharEntity*>(PEntity))
     {
-        enmityBonus += PChar->PMeritPoints->GetMeritValue(MERIT_ENMITY_INCREASE, PChar) - PChar->PMeritPoints->GetMeritValue(MERIT_ENMITY_DECREASE, PChar);
+        enmityBonus += PChar->PMeritPoints->GetMeritValue(xi::Merit::EnmityIncrease, PChar) - PChar->PMeritPoints->GetMeritValue(xi::Merit::EnmityDecrease, PChar);
 
         if (PChar->StatusEffectContainer->HasStatusEffect(xi::StatusEffect::Souleater))
         {
-            enmityBonus -= PChar->PMeritPoints->GetMeritValue(MERIT_MUTED_SOUL, PChar);
+            enmityBonus -= PChar->PMeritPoints->GetMeritValue(xi::Merit::MutedSoul, PChar);
         }
     }
 
@@ -170,6 +167,16 @@ void CEnmityContainer::UpdateEnmity(CBattleEntity* PEntity, int32 CE, int32 VE, 
         return;
     }
 
+    // If the entity ignores pets, fetch the master and add base enmity to them.
+    if (IgnorePets(PEntity))
+    {
+        if (withMaster && PEntity->PMaster != nullptr && CE >= 0 && VE >= 0)
+        {
+            AddBaseEnmity(PEntity->PMaster);
+        }
+        return;
+    }
+
     // you're too far away so i'm ignoring you
     if (!IsWithinEnmityRange(PEntity))
     {
@@ -180,24 +187,18 @@ void CEnmityContainer::UpdateEnmity(CBattleEntity* PEntity, int32 CE, int32 VE, 
     // Apply TH only if this was a direct action
     if (directAction)
     {
-        int16 THlevel = std::min<int16>(8, PEntity->getMod(Mod::TREASURE_HUNTER));
-        int16 GFlevel = PEntity->getMod(Mod::GILFINDER); // Is there a cap? Theoretical GF level cap could be GF 8 for 128/256 + 8*16 = 256/256
+        int16 THlevel = std::min<int16>(8, PEntity->getMod(xi::Mod::TREASURE_HUNTER));
+        int16 GFlevel = PEntity->getMod(xi::Mod::GILFINDER); // Is there a cap? Theoretical GF level cap could be GF 8 for 128/256 + 8*16 = 256/256
 
         // Enforce TH8 as max for THF main and TH4 as non-THF main
-        if (PEntity->GetMJob() != JOB_THF)
+        if (PEntity->GetMJob() != xi::Job::THF)
         {
-            THlevel = std::min<int16>(4, PEntity->getMod(Mod::TREASURE_HUNTER));
+            THlevel = std::min<int16>(4, PEntity->getMod(xi::Mod::TREASURE_HUNTER));
         }
 
-        if (m_EnmityHolder->m_THLvl < THlevel)
-        {
-            m_EnmityHolder->m_THLvl = THlevel;
-        }
+        m_EnmityHolder->m_THLvl = std::max(m_EnmityHolder->m_THLvl, THlevel);
 
-        if (m_EnmityHolder->m_GilfinderLevel < GFlevel)
-        {
-            m_EnmityHolder->m_GilfinderLevel = GFlevel;
-        }
+        m_EnmityHolder->m_GilfinderLevel = std::max(m_EnmityHolder->m_GilfinderLevel, GFlevel);
     }
 
     auto enmity_obj = m_EnmityList.find(PEntity->id);
@@ -251,7 +252,7 @@ void CEnmityContainer::UpdateEnmity(CBattleEntity* PEntity, int32 CE, int32 VE, 
         if (withMaster && PEntity->PMaster != nullptr)
         {
             // add master to the enmity list (pet and charmed mob)
-            if (PEntity->objtype == TYPE_PET || (PEntity->objtype == TYPE_MOB && PEntity->PMaster != nullptr && PEntity->PMaster->objtype == TYPE_PC))
+            if (PEntity->objtype == TYPE_PET || (PEntity->objtype == TYPE_MOB && PEntity->PMaster != nullptr && dynamic_cast<const CCharEntity*>(PEntity->PMaster) != nullptr))
             {
                 AddBaseEnmity(PEntity->PMaster);
             }
@@ -266,9 +267,8 @@ void CEnmityContainer::UpdateEnmity(CBattleEntity* PEntity, int32 CE, int32 VE, 
 
 bool CEnmityContainer::HasID(uint32 TargetID)
 {
-    auto maybeID = std::find_if(
-        m_EnmityList.begin(),
-        m_EnmityList.end(),
+    auto maybeID = std::ranges::find_if(
+        m_EnmityList,
         [TargetID](auto elem)
         {
             return elem.first == TargetID;
@@ -287,7 +287,7 @@ void CEnmityContainer::UpdateEnmityFromCure(CBattleEntity* PEntity, uint8 level,
 {
     TracyZoneScoped;
 
-    if (!IsWithinEnmityRange(PEntity))
+    if (!IsWithinEnmityRange(PEntity) || IgnorePets(PEntity))
     {
         return;
     }
@@ -304,7 +304,7 @@ void CEnmityContainer::UpdateEnmityFromCure(CBattleEntity* PEntity, uint8 level,
     }
     else
     {
-        CureAmount = (CureAmount < 1 ? 1 : CureAmount);
+        CureAmount = std::max(CureAmount, 1);
 
         CE = (int32)(40.0f / battleutils::GetEnmityModCure(level) * CureAmount * bonus * tranquilHeartReduction);
         VE = (int32)(240.0f / battleutils::GetEnmityModCure(level) * CureAmount * bonus * tranquilHeartReduction);
@@ -342,10 +342,10 @@ void CEnmityContainer::LowerEnmityByPercent(CBattleEntity* PEntity, uint8 percen
         float mod = ((float)(percent) / 100.0f);
 
         auto CEValue = (int32)(enmity_obj->second.CE * mod);
-        enmity_obj->second.CE -= (CEValue < 0 ? 0 : CEValue);
+        enmity_obj->second.CE -= std::max(CEValue, 0);
 
         auto VEValue = (int32)(enmity_obj->second.VE * mod);
-        enmity_obj->second.VE -= (VEValue < 0 ? 0 : VEValue);
+        enmity_obj->second.VE -= std::max(VEValue, 0);
 
         // transfer hate if HateReceiver not nullptr
         if (HateReceiver != nullptr)
@@ -425,7 +425,7 @@ void CEnmityContainer::UpdateEnmityFromDamage(CBattleEntity* PEntity, int32 Dama
             return;
         }
 
-        Damage          = (Damage < 1 ? 1 : Damage);
+        Damage          = std::max(Damage, 1);
         int16 damageMod = battleutils::GetEnmityModDamage(m_EnmityHolder->GetMLevel());
 
         int32 CE = (int32)(80.0f / damageMod * Damage);
@@ -433,10 +433,7 @@ void CEnmityContainer::UpdateEnmityFromDamage(CBattleEntity* PEntity, int32 Dama
 
         UpdateEnmity(PEntity, CE, VE);
 
-        if (m_EnmityHolder->m_HiPCLvl < PEntity->GetMLevel())
-        {
-            m_EnmityHolder->m_HiPCLvl = PEntity->GetMLevel();
-        }
+        m_EnmityHolder->m_HiPCLvl = std::max(m_EnmityHolder->m_HiPCLvl, PEntity->GetMLevel());
     }
 }
 
@@ -452,7 +449,7 @@ void CEnmityContainer::UpdateEnmityFromAttack(CBattleEntity* PEntity, int32 Dama
 
     if (auto enmity_obj = m_EnmityList.find(PEntity->id); enmity_obj != m_EnmityList.end())
     {
-        float reduction = (100.0f - std::min<int16>(PEntity->getMod(Mod::ENMITY_LOSS_REDUCTION), 100)) / 100.0f;
+        float reduction = (100.0f - std::min<int16>(PEntity->getMod(xi::Mod::ENMITY_LOSS_REDUCTION), 100)) / 100.0f;
         int32 CE        = (int32)(-1800.0f * Damage / PEntity->GetMaxHP() * reduction);
 
         enmity_obj->second.CE = std::clamp(enmity_obj->second.CE + CE, 0, EnmityCap);
@@ -467,8 +464,6 @@ void CEnmityContainer::UpdateEnmityFromAttack(CBattleEntity* PEntity, int32 Dama
 
 CBattleEntity* CEnmityContainer::GetHighestEnmity()
 {
-    TracyZoneScoped;
-
     if (m_EnmityList.empty())
     {
         return nullptr;
@@ -488,9 +483,9 @@ CBattleEntity* CEnmityContainer::GetHighestEnmity()
             {
                 // Deal with ties by preferring current battle target
                 // Check if there is a tie, the current highest entity is valid, the mob has a battle target,
-                if (Enmity == HighestEnmity && highest != m_EnmityList.end() && m_EnmityHolder->GetBattleTargetID() != 0 &&
+                if (Enmity == HighestEnmity && highest != m_EnmityList.end() && m_EnmityHolder->battleTarget().isSet() &&
                     // the current highest entity is the current battle target
-                    highest->second.PEnmityOwner && highest->second.PEnmityOwner->targid == m_EnmityHolder->GetBattleTargetID())
+                    highest->second.PEnmityOwner && m_EnmityHolder->battleTarget() == highest->second.PEnmityOwner)
                 {
                     continue;
                 }
@@ -528,7 +523,7 @@ void CEnmityContainer::DecayEnmity()
         EnmityObject_t& PEnmityObject = it.second;
         constexpr int   decay_amount  = (int)(60 / kLogicUpdateRate); // TODO: This should decay relative to the delta tick time?
 
-        PEnmityObject.VE -= PEnmityObject.VE > decay_amount ? decay_amount : PEnmityObject.VE;
+        PEnmityObject.VE -= std::min(PEnmityObject.VE, decay_amount);
     }
 }
 
@@ -538,13 +533,28 @@ bool CEnmityContainer::IsWithinEnmityRange(CBattleEntity* PEntity) const
     {
         return false;
     }
-    float maxRange = m_EnmityHolder->m_Type == MOBTYPE_NOTORIOUS ? 28.0f : 25.0f;
+    float maxRange = m_EnmityHolder->m_Type == xi::MobType::Notorious ? 28.0f : 25.0f;
     return isWithinDistance(m_EnmityHolder->loc.p, PEntity->loc.p, maxRange);
 }
 
 EnmityList_t* CEnmityContainer::GetEnmityList()
 {
     return &m_EnmityList;
+}
+
+bool CEnmityContainer::IgnorePets(CBattleEntity* PEntity) const
+{
+    if (m_EnmityHolder->getMobMod(xi::MobMod::IgnorePets) == 0)
+    {
+        return false;
+    }
+
+    if (PEntity->objtype == TYPE_PET)
+    {
+        return true;
+    }
+
+    return PEntity->objtype == TYPE_MOB && PEntity->PMaster != nullptr && dynamic_cast<const CCharEntity*>(PEntity->PMaster) != nullptr;
 }
 
 bool CEnmityContainer::IsTameable() const

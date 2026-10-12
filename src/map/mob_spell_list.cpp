@@ -19,18 +19,21 @@
 ===========================================================================
 */
 
+#include <common/types/hash_map.h>
+
+#include <algorithm>
 #include <cstring>
 
 #include "lua/luautils.h"
 
 #include "mob_spell_list.h"
 
-CMobSpellList::CMobSpellList(const uint16 listId)
+CMobSpellList::CMobSpellList(Maybe<uint16> listId)
 : m_listId(listId)
 {
 }
 
-auto CMobSpellList::getId() const -> uint16
+auto CMobSpellList::getId() const -> Maybe<uint16>
 {
     return m_listId;
 }
@@ -44,12 +47,9 @@ void CMobSpellList::AddSpell(const SpellID spellId, const uint16 minLvl, const u
 
 auto CMobSpellList::GetSpellMinLevel(const SpellID spellId) const -> uint16
 {
-    for (const auto& mobSpell : m_spellList)
+    if (const auto it = std::ranges::find(m_spellList, spellId, &MobSpell_t::spellId); it != m_spellList.end())
     {
-        if (spellId == mobSpell.spellId)
-        {
-            return mobSpell.min_level;
-        }
+        return it->min_level;
     }
 
     return 255;
@@ -59,7 +59,7 @@ auto CMobSpellList::GetSpellMinLevel(const SpellID spellId) const -> uint16
 namespace mobSpellList
 {
 
-std::unordered_map<uint16, std::unique_ptr<CMobSpellList>> PMobSpellList;
+HashMap<uint16, std::unique_ptr<CMobSpellList>> PMobSpellList;
 
 // Load list of spells
 void LoadMobSpellList()

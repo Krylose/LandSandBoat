@@ -19,10 +19,7 @@
 ===========================================================================
 */
 
-#ifndef _CCHARSYNCPACKET_H
-#define _CCHARSYNCPACKET_H
-
-#include "common/cbasetypes.h"
+#pragma once
 
 #include "basic.h"
 
@@ -33,5 +30,3 @@ class CCharSyncPacket : public CBasicPacket
 public:
     CCharSyncPacket(CCharEntity* PChar);
 };
-
-#endif

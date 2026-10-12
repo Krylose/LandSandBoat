@@ -22,10 +22,7 @@
 #include "npc_entity.h"
 
 #include "ai/ai_container.h"
-
-#include "packets/entity_update.h"
-
-#include "utils/zoneutils.h"
+#include "zone.h"
 
 /************************************************************************
  *                                                                       *
@@ -39,7 +36,7 @@ CNpcEntity::CNpcEntity()
 
     objtype    = TYPE_NPC;
     look.face  = 0x32;
-    allegiance = ALLEGIANCE_TYPE::MOB;
+    allegiance = xi::Allegiance::Mob;
 
     PAI = std::make_unique<CAIContainer>(this);
 }
@@ -49,12 +46,12 @@ CNpcEntity::~CNpcEntity()
     TracyZoneScoped;
 }
 
-uint32 CNpcEntity::entityFlags() const
+auto CNpcEntity::entityFlags() const -> xi::EntityFlags
 {
     return m_flags;
 }
 
-void CNpcEntity::setEntityFlags(uint32 EntityFlags)
+void CNpcEntity::setEntityFlags(xi::EntityFlags EntityFlags)
 {
     m_flags = EntityFlags;
 }
@@ -63,34 +60,29 @@ void CNpcEntity::hideHP(bool hide)
 {
     if (hide)
     {
-        m_flags |= 0x100;
+        m_flags |= xi::EntityFlags::HideHp;
     }
     else
     {
-        m_flags &= ~0x100;
+        m_flags &= ~xi::EntityFlags::HideHp;
     }
-}
-
-bool CNpcEntity::hpHidden() const
-{
-    return (m_flags & 0x800) == 0x800;
 }
 
 void CNpcEntity::setUntargetable(bool untargetable)
 {
     if (untargetable)
     {
-        m_flags |= FLAG_UNTARGETABLE;
+        m_flags |= xi::EntityFlags::Untargetable;
     }
     else
     {
-        m_flags &= ~FLAG_UNTARGETABLE;
+        m_flags &= ~xi::EntityFlags::Untargetable;
     }
 }
 
 bool CNpcEntity::GetUntargetable() const
 {
-    return (m_flags & FLAG_UNTARGETABLE) == FLAG_UNTARGETABLE;
+    return (m_flags & xi::EntityFlags::Untargetable) == xi::EntityFlags::Untargetable;
 }
 
 bool CNpcEntity::triggerable() const
@@ -123,15 +115,25 @@ void CNpcEntity::setAlwaysRelevant(bool alwaysRelevant)
     alwaysRelevant_ = alwaysRelevant;
 }
 
+auto CNpcEntity::contentDisabled() const -> bool
+{
+    return contentDisabled_;
+}
+
+void CNpcEntity::setContentDisabled(bool contentDisabled)
+{
+    contentDisabled_ = contentDisabled;
+}
+
 bool CNpcEntity::isWideScannable()
 {
-    return widescan_ == 1 && status == STATUS_TYPE::NORMAL && CBaseEntity::isWideScannable();
+    return widescan_ == 1 && status == xi::Status::Normal && CBaseEntity::isWideScannable();
 }
 
 void CNpcEntity::PostTick()
 {
     timer::time_point now = timer::now();
-    if (loc.zone && updatemask && status != STATUS_TYPE::DISAPPEAR && now > m_nextUpdateTimer)
+    if (loc.zone && updatemask && status != xi::Status::Disappear && now > m_nextUpdateTimer)
     {
         m_nextUpdateTimer = now + 250ms;
         loc.zone->UpdateEntityPacket(this, ENTITY_UPDATE, updatemask);

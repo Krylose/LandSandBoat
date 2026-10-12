@@ -44,7 +44,7 @@ quest.sections =
         check = function(player, questVars, vars)
             return xi.settings.main.ENABLE_MONSTROSITY == 1 and
                 quest:getVar(player, 'Timer') <= VanadielUniqueDay() and
-                not xi.monstrosity.hasUnlockedSpecies(player, xi.monstrosity.species.BEE)
+                not xi.monstrosity.hasUnlockedSpecies(player, xi.monstrositySpecies.BEE)
         end,
 
         [xi.zone.FERETORY] =
@@ -55,9 +55,11 @@ quest.sections =
                     local quizInfo = quest:getVar(player, 'Option')
 
                     if quizInfo == 0 then
-                        quizInfo = math.random(1, 6)
+                        quizInfo = math.randomInt(1, 6)
                         quest:setVar(player, 'Option', quizInfo)
                     end
+
+                    player:showText(npc, feretoryID.text.SINKING_THY_CLAWS)
 
                     return quest:progressEvent(11, 1, quizInfo - 1)
                 end,
@@ -68,7 +70,7 @@ quest.sections =
                 [11] = function(player, csid, option, npc)
                     if option == 1 + getCheckValue(quest:getVar(player, 'Option')) then
                         if quest:complete(player) then
-                            xi.monstrosity.unlockSpecies(xi.monstrosity.species.BEE)
+                            xi.monstrosity.unlockSpecies(player, xi.monstrositySpecies.BEE)
                             player:messageSpecial(feretoryID.text.MAY_POSSESS_BEES)
                         end
                     elseif option == 2 then

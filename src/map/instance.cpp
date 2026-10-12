@@ -19,6 +19,8 @@
 ===========================================================================
 */
 
+#include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <thread>
 
@@ -39,6 +41,10 @@ CInstance::CInstance(Scheduler& scheduler, MapConfig config, CZone* zone, uint32
 {
     TracyZoneScoped;
 
+    static std::atomic<uint32> nextRunId{ 1 };
+
+    runId_ = nextRunId.fetch_add(1, std::memory_order_relaxed);
+
     m_wipeTimer     = m_startTime;
     m_lastTimeCheck = m_startTime;
 
@@ -53,6 +59,11 @@ CInstance::~CInstance()
 uint16 CInstance::GetID() const
 {
     return m_instanceid;
+}
+
+auto CInstance::runId() const -> uint32
+{
+    return runId_;
 }
 
 uint32 CInstance::GetProgress() const
@@ -249,21 +260,14 @@ void CInstance::CheckTime(timer::time_point tick)
     }
     if (m_lastTimeCheck + checkFrequency <= tick && !Failed())
     {
-        luautils::OnInstanceTimeUpdate(GetZone(), this, static_cast<uint32>(timer::count_milliseconds(GetElapsedTime(tick))));
+        luautils::OnInstanceTimeUpdate(GetZone(), this, static_cast<uint32>(timer::count_seconds(GetElapsedTime(tick))));
         m_lastTimeCheck = tick;
     }
 }
 
 bool CInstance::CharRegistered(CCharEntity* PChar)
 {
-    for (auto id : m_registeredChars)
-    {
-        if (PChar->id == id)
-        {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::contains(m_registeredChars, PChar->id);
 }
 
 void CInstance::ClearEntities()

@@ -21,11 +21,14 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 namespace Exdata
 {
+
 #pragma pack(push, 1)
+
 struct HoneymoonTicket
 {
     uint8_t Plan;
@@ -35,5 +38,7 @@ struct HoneymoonTicket
     void toTable(sol::table& table) const;
     void fromTable(const sol::table& data);
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

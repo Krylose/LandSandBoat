@@ -2,13 +2,10 @@
 -- Area: Southern San d'Oria
 --  NPC: Ophelia
 -- Type: ENM Quest Timer
--- !pos -25 2 -94.6 230
+-- !pos -25.794 1.999 -97.133 230
 -----------------------------------
 ---@type TNpcEntity
 local entity = {}
-
-entity.onTrade = function(player, npc, trade)
-end
 
 entity.onTrigger = function(player, npc)
     xi.enm.timerNpcOnTrigger(player, npc)

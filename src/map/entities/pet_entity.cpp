@@ -21,20 +21,14 @@
 
 #include "pet_entity.h"
 
-#include <cstring>
-
 #include "ai/ai_container.h"
 #include "ai/controllers/pet_controller.h"
 #include "ai/helpers/pathfind.h"
 #include "ai/helpers/targetfind.h"
 #include "ai/states/ability_state.h"
 #include "ai/states/petskill_state.h"
-#include "mob_modifier.h"
-#include "mob_spell_container.h"
-#include "mob_spell_list.h"
-#include "packets/entity_update.h"
+#include "data/enums/mob_mod.h"
 #include "packets/pet_sync.h"
-#include "status_effect_container.h"
 #include "utils/battleutils.h"
 #include "utils/messageutils.h"
 #include "utils/mobutils.h"
@@ -45,7 +39,10 @@
 
 #include "action/action.h"
 #include "action/interrupts.h"
+#include "entities/char_entity.h"
+#include "lua/luautils.h"
 #include "packets/s2c/0x029_battle_message.h"
+#include "zone.h"
 
 CPetEntity::CPetEntity(PET_TYPE petType, uint32 petID)
 : CMobEntity()
@@ -59,10 +56,10 @@ CPetEntity::CPetEntity(PET_TYPE petType, uint32 petID)
 
     objtype                     = TYPE_PET;
     m_EcoSystem                 = xi::Ecosystem::Unclassified;
-    allegiance                  = ALLEGIANCE_TYPE::PLAYER;
+    allegiance                  = xi::Allegiance::Player;
     m_MobSkillList              = 0;
     m_bReleaseTargIDOnDisappear = true;
-    spawnAnimation              = SPAWN_ANIMATION::SPECIAL; // Initial spawn has the special spawn-in animation
+    spawnAnimation              = xi::SpawnAnimation::Special; // Initial spawn has the special spawn-in animation
 
     PAI = std::make_unique<CAIContainer>(this, std::make_unique<CPathFind>(this), std::make_unique<CPetController>(this), std::make_unique<CTargetFind>(this));
 }
@@ -184,27 +181,27 @@ WYVERN_TYPE CPetEntity::getWyvernType()
 
     switch (PMaster->GetSJob())
     {
-        case JOB_BLM:
-        case JOB_BLU:
-        case JOB_SMN:
-        case JOB_WHM:
-        case JOB_RDM:
-        case JOB_SCH:
-        case JOB_GEO:
+        case xi::Job::BLM:
+        case xi::Job::BLU:
+        case xi::Job::SMN:
+        case xi::Job::WHM:
+        case xi::Job::RDM:
+        case xi::Job::SCH:
+        case xi::Job::GEO:
             return WYVERN_TYPE::DEFENSIVE;
-        case JOB_DRK:
-        case JOB_PLD:
-        case JOB_NIN:
-        case JOB_BRD:
-        case JOB_RUN:
+        case xi::Job::DRK:
+        case xi::Job::PLD:
+        case xi::Job::NIN:
+        case xi::Job::BRD:
+        case xi::Job::RUN:
             return WYVERN_TYPE::MULTIPURPOSE;
-        case JOB_WAR:
-        case JOB_SAM:
-        case JOB_THF:
-        case JOB_BST:
-        case JOB_RNG:
-        case JOB_COR:
-        case JOB_DNC:
+        case xi::Job::WAR:
+        case xi::Job::SAM:
+        case xi::Job::THF:
+        case xi::Job::BST:
+        case xi::Job::RNG:
+        case xi::Job::COR:
+        case xi::Job::DNC:
             return WYVERN_TYPE::OFFENSIVE;
 
         default:
@@ -216,14 +213,14 @@ void CPetEntity::PostTick()
 {
     CBattleEntity::PostTick();
     timer::time_point now = timer::now();
-    if (loc.zone && updatemask && status != STATUS_TYPE::DISAPPEAR && now > m_nextUpdateTimer)
+    if (loc.zone && updatemask && status != xi::Status::Disappear && now > m_nextUpdateTimer)
     {
         m_nextUpdateTimer = now + 250ms;
         loc.zone->UpdateEntityPacket(this, ENTITY_UPDATE, updatemask);
 
-        if (PMaster && PMaster->PPet == this)
+        if (auto* PChar = dynamic_cast<CCharEntity*>(PMaster); PChar && PChar->PPet == this)
         {
-            ((CCharEntity*)PMaster)->pushPacket<CPetSyncPacket>((CCharEntity*)PMaster);
+            PChar->pushPacket<CPetSyncPacket>(PChar);
         }
 
         updatemask = 0;
@@ -241,7 +238,7 @@ void CPetEntity::Die()
     PAI->ClearStateStack();
 
     // master is zoning, don't go to death state, instead despawn instantly
-    if (health.hp > 0 && PMaster && PMaster->objtype == TYPE_PC && static_cast<CCharEntity*>(PMaster)->petZoningInfo.respawnPet)
+    if (auto* PChar = dynamic_cast<CCharEntity*>(PMaster); health.hp > 0 && PChar && PChar->petZoningInfo.respawnPet)
     {
         PAI->Internal_Despawn(true);
     }
@@ -255,7 +252,7 @@ void CPetEntity::Die()
     // NOTE: This is purposefully calling CBattleEntity's impl.
     // TODO: Calling a grand-parent's impl. of an overrideden function is bad
     CBattleEntity::Die();
-    if (PMaster && PMaster->PPet == this && PMaster->objtype == TYPE_PC)
+    if (PMaster && PMaster->PPet == this && dynamic_cast<const CCharEntity*>(PMaster) != nullptr)
     {
         petutils::DetachPet(PMaster);
     }
@@ -264,10 +261,10 @@ void CPetEntity::Die()
 void CPetEntity::Spawn()
 {
     // we need to skip CMobEntity's spawn because it calculates stats (and our stats are already calculated)
-    if (PMaster && PMaster->objtype == TYPE_PC && m_EcoSystem == xi::Ecosystem::Elemental)
+    if (PMaster && dynamic_cast<const CCharEntity*>(PMaster) != nullptr && m_EcoSystem == xi::Ecosystem::Elemental)
     {
-        this->defaultMobMod(MOBMOD_MAGIC_DELAY, 12);
-        this->defaultMobMod(MOBMOD_MAGIC_COOL, 48);
+        this->defaultMobMod(xi::MobMod::MagicDelay, 12);
+        this->defaultMobMod(xi::MobMod::MagicCool, 48);
         mobutils::GetAvailableSpells(this);
     }
 
@@ -307,7 +304,7 @@ void CPetEntity::loadPetZoningInfo()
 void CPetEntity::OnAbility(CAbilityState& state, action_t& action)
 {
     auto* PAbility = state.GetAbility();
-    auto* PTarget  = static_cast<CBattleEntity*>(state.GetTarget());
+    auto* PTarget  = state.target().resolve<CBattleEntity>();
 
     std::unique_ptr<CBasicPacket> errMsg;
     if (PTarget && IsValidTarget(PTarget->targid, PAbility->getValidTarget(), errMsg))
@@ -393,7 +390,7 @@ void CPetEntity::OnPetSkillFinished(CPetSkillState& state, action_t& action)
     TracyZoneScoped;
 
     auto* PSkill  = state.GetPetSkill();
-    auto* PTarget = dynamic_cast<CBattleEntity*>(state.GetTarget());
+    auto* PTarget = state.target().resolve<CBattleEntity>();
 
     if (PTarget == nullptr)
     {
@@ -450,7 +447,7 @@ void CPetEntity::OnPetSkillFinished(CPetSkillState& state, action_t& action)
         }
         else
         {
-            if (this->objtype == TYPE_MOB && PTarget->objtype == TYPE_PC)
+            if (this->objtype == TYPE_MOB && dynamic_cast<const CCharEntity*>(PTarget) != nullptr)
             {
                 CBattleEntity* PCoverAbilityUser = battleutils::GetCoverAbilityUser(PTarget, this);
                 if (PCoverAbilityUser != nullptr)
@@ -546,7 +543,7 @@ void CPetEntity::OnPetSkillFinished(CPetSkillState& state, action_t& action)
             //       furthermore, this likely needs to be PSkill->setMsg(MsgBasic::SkillRecoversHP) and happen before the above code
             msg = MsgBasic::SkillRecoversHP;
             actionResult.recordDamage(attack_outcome_t{
-                .atkType = ATTACK_TYPE::PHYSICAL,
+                .atkType = xi::AttackType::Physical,
                 .damage  = std::clamp(-damage, 0, PTargetFound->GetMaxHP() - PTargetFound->health.hp),
                 .target  = PTargetFound,
             });
@@ -608,7 +605,7 @@ void CPetEntity::OnPetSkillFinished(CPetSkillState& state, action_t& action)
         battleutils::DirtyExp(PTargetFound, this);
     }
 
-    PTarget = dynamic_cast<CBattleEntity*>(state.GetTarget()); // TODO: why is this recast here? can state change between now and the original cast?
+    PTarget = state.target().resolve<CBattleEntity>(); // TODO: why is this recast here? can state change between now and the original cast?
 
     if (PTarget)
     {

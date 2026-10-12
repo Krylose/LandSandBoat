@@ -19,8 +19,7 @@
 ===========================================================================
 */
 
-#ifndef _CMOBSKILL_H
-#define _CMOBSKILL_H
+#pragma once
 
 #include "common/cbasetypes.h"
 #include "common/mmo.h"
@@ -92,7 +91,7 @@ public:
     uint8           getPrimarySkillchain() const;
     uint8           getSecondarySkillchain() const;
     uint8           getTertiarySkillchain() const;
-    auto            getAttackType() const -> ATTACK_TYPE;
+    auto            getAttackType() const -> xi::AttackType;
     auto            isCritical() const -> bool;
 
     bool isDamageMsg() const;
@@ -119,7 +118,7 @@ public:
     void setPrimarySkillchain(uint8 skillchain);
     void setSecondarySkillchain(uint8 skillchain);
     void setTertiarySkillchain(uint8 skillchain);
-    void setAttackType(ATTACK_TYPE attackType);
+    void setAttackType(xi::AttackType attackType);
     void setCritical(bool isCritical);
 
     const std::string& getName();
@@ -146,7 +145,7 @@ private:
     uint8           m_primarySkillchain;
     uint8           m_secondarySkillchain;
     uint8           m_tertiarySkillchain;
-    ATTACK_TYPE     m_attackType{ ATTACK_TYPE::NONE };
+    xi::AttackType  m_attackType{ xi::AttackType::None };
     bool            m_isCritical{ false };
 
     Maybe<uint8> m_FinalAnimationSub; // If non-null, entity will get this new animation sub after state exits
@@ -155,5 +154,3 @@ private:
 
     std::vector<CBattleEntity*> m_Targets;
 };
-
-#endif

@@ -23,11 +23,12 @@
 
 #include "char_update.h"
 
+#include "data/enums/zone_misc.h"
 #include "entities/char_entity.h"
 #include "items/item_linkshell.h"
 #include "status_effect_container.h"
-#include "utils/itemutils.h"
 #include "utils/mountutils.h"
+#include "zone.h"
 
 namespace
 {
@@ -281,13 +282,13 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
         const auto [ChocoboIndex, CustomProperties] = mountutils::packetDefinition(PChar);
 
         packet->Hpp             = PChar->GetHPP();
-        packet->server_status   = PChar->animation;
+        packet->server_status   = static_cast<uint8_t>(PChar->animation);
         packet->ModelHitboxSize = static_cast<uint8_t>(PChar->modelHitboxSize * 10); // TODO: verify this value and if it changes (Monstrosity?)
 
         packet->Flags1.MonsterFlag = false; // TODO: Is this ever set for Monstrosity PVP?
-        packet->Flags1.HideFlag    = PChar->m_zoneInCutscene;
-        packet->Flags1.SleepFlag   = 0;                                                                // Something to do with events. // TODO: figure out when/if this is set. Probably when you're in a cutscene?
-        packet->Flags1.unknown_0_3 = PChar->loc.zone ? PChar->loc.zone->CanUseMisc(MISC_TREASURE) : 0; // Set global treasure pool
+        packet->Flags1.HideFlag    = PChar->m_isPCHidden;
+        packet->Flags1.SleepFlag   = 0;                                                                         // Something to do with events. // TODO: figure out when/if this is set. Probably when you're in a cutscene?
+        packet->Flags1.unknown_0_3 = PChar->loc.zone ? PChar->loc.zone->CanUseMisc(xi::ZoneMisc::Treasure) : 0; // Set global treasure pool
         packet->Flags1.unknown_0_4 = 0;
 
         // All mounts need a valid ChocoboIndex
@@ -297,7 +298,7 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
         // Only known to be used by Noble Chocobo at this time.
         packet->CustomProperties[1] = CustomProperties[1];
 
-        auto* linkshell = reinterpret_cast<CItemLinkshell*>(PChar->getEquip(SLOT_LINK1));
+        auto* linkshell = PChar->getLinkshell(SLOT_LINK1);
 
         packet->Flags1.CliPosInitFlag  = 0; // Unused
         packet->Flags1.GraphSize       = PChar->look.size;
@@ -317,7 +318,7 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
         packet->Flags1.TurnFlag        = 0; // I do not believe we currently use this. // TOOD: get the lerp values from retail somehow.
         packet->Flags1.BazaarFlag      = PChar->hasBazaar();
 
-        if (linkshell && linkshell->isType(ITEM_LINKSHELL))
+        if (linkshell)
         {
             const Exdata::lscolor_t LSColor = linkshell->GetLSColor();
 
@@ -342,7 +343,7 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
         packet->Flags3.CliPriorityFlag  = PChar->priorityRender;
         packet->Flags3.PetFlag          = 0;
         packet->Flags3.BallistaTeam     = static_cast<uint8_t>(PChar->allegiance); // Also used during Ballista with slightly different values.
-        packet->Flags3.MonStat          = 0;                                       // Some monstrosity flag. // TODO: verify if we already use this.
+        packet->Flags3.MonStat          = 0;                                       // Retail sends 0 here even for Monstrosity players.
         packet->Flags3.SilenceFlag      = PChar->m_isGMHidden || PChar->StatusEffectContainer->HasStatusEffect(xi::StatusEffect::Sneak);
         packet->Flags3.NewCharacterFlag = !PChar->playerConfig.NewAdventurerOffFlg;
         packet->Flags3.MentorFlag       = PChar->playerConfig.MentorFlg;
@@ -365,7 +366,7 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
             packet->Flags5.GeoIndiSize = 2;
         }
 
-        packet->Flags6.GateId = 0; // Set as "Confrontation" sub power? This will make other players invisible that dont also have this status.
+        packet->Flags6.GateId = PChar->StatusEffectContainer->GetConfrontationSubPower() & 0x0F;
         packet->size          = roundUpToNearestFour(general_size) / 4;
     }
 
@@ -400,7 +401,7 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
             packet->GrapIDTbl[0] = PChar->m_PMonstrosity->Look;
             packet->GrapIDTbl[8] = 0xFFFF;
             // Sword & Shield icon only shows outside of the Feretory
-            if (PChar->m_PMonstrosity->Belligerency && PChar->loc.zone->GetID() != ZONE_FERETORY)
+            if (PChar->m_PMonstrosity->Belligerency && PChar->loc.zone->GetID() != xi::ZoneId::Feretory)
             {
                 packet->Flags3.BallistaTeam |= 0x08; // 0x18?
             }
@@ -438,6 +439,6 @@ void CCharUpdatePacket::updateWith(CCharEntity* PChar, ENTITYUPDATE type, uint8 
         }
 
         packet->Flags4.TrialFlag     = 0; // Trial accounts not implemented.
-        packet->Flags4.JobMasterFlag = PChar->getMod(Mod::SUPERIOR_LEVEL) == 5 && PChar->m_jobMasterDisplay;
+        packet->Flags4.JobMasterFlag = PChar->getMod(xi::Mod::SUPERIOR_LEVEL) == 5 && PChar->m_jobMasterDisplay;
     }
 }

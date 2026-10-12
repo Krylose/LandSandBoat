@@ -19,14 +19,12 @@
 ===========================================================================
 */
 
-#ifndef _CITEMWEAPON_H
-#define _CITEMWEAPON_H
+#pragma once
 
 #include "common/cbasetypes.h"
 #include "entities/battle_entity.h"
 
 #include "item_equipment.h"
-#include "items/exdata.h"
 
 class CItemWeapon : public CItemEquipment
 {
@@ -35,7 +33,7 @@ public:
     CItemWeapon(const CItemWeapon& other);
     virtual ~CItemWeapon();
 
-    uint8  getSkillType() const;
+    auto   getSkillType() const -> xi::SkillType;
     uint8  getSubSkillType() const;
     uint16 getILvlSkill() const;
     uint16 getILvlParry() const;
@@ -60,7 +58,7 @@ public:
     bool isUnlockable() const;
     bool isUnlocked();
 
-    void setSkillType(uint8 skillType);
+    void setSkillType(xi::SkillType skillType);
     void setSubSkillType(uint8 subSkillType);
     void setILvlSkill(uint16 skill);
     void setILvlParry(uint16 parry);
@@ -77,7 +75,7 @@ public:
     void setCurrentUnlockPoints(uint16 points);
 
 private:
-    uint8          m_skillType;
+    xi::SkillType  m_skillType;
     uint8          m_subSkillType; // gun vs crossbow, any other exclusives
     uint16         m_iLvlSkill;
     uint16         m_iLvlParry;
@@ -95,4 +93,3 @@ private:
     bool m_ranged;
     bool m_twoHanded;
 };
-#endif

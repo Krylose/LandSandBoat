@@ -22,10 +22,13 @@
 #pragma once
 
 #include "common/cbasetypes.h"
-#include "luautils.h"
 
+#include <sol/forward.hpp>
+
+class CBaseEntity;
 enum class TreasurePoolType : uint8;
 class CTreasurePool;
+
 class CLuaTreasurePool
 {
     CTreasurePool* m_PLuaTreasurePool;

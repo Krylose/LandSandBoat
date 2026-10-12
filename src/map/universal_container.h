@@ -19,11 +19,9 @@
 ===========================================================================
 */
 
-#ifndef _CUNIVERSALCONTAINER_H
-#define _CUNIVERSALCONTAINER_H
+#pragma once
 
 #include "common/cbasetypes.h"
-#include <vector>
 
 enum UCONTAINERTYPE
 {
@@ -49,7 +47,6 @@ enum UCONTAINERTYPE
 // main item (gil, crystal, used item...)
 
 class CItem;
-class CBaseEntity;
 
 class CUContainer
 {
@@ -83,5 +80,3 @@ private:
     uint16              m_target{};
     std::vector<CItem*> m_PItem;
 };
-
-#endif

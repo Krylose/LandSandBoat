@@ -24,20 +24,22 @@
 #include "0x0e7_reqlogout.h"
 #include "ai/ai_container.h"
 #include "entities/char_entity.h"
+#include "entities/pet_entity.h"
+#include "packets/c2s/validation.h"
 #include "status_effect_container.h"
 
 auto GP_CLI_COMMAND_CAMP::validate(MapSession* PSession, const CCharEntity* PChar) const -> PacketValidationResult
 {
     return PacketValidator(PChar)
-        .blockedBy({ BlockedState::InEvent, BlockedState::AbnormalStatus, BlockedState::Crafting, BlockedState::PreventAction, BlockedState::Engaged })
+        .blockedBy({ BlockedState::InEvent, BlockedState::Dead, BlockedState::AbnormalStatus, BlockedState::Crafting, BlockedState::PreventAction, BlockedState::Engaged })
         .oneOf<GP_CLI_COMMAND_REQLOGOUT_MODE>(this->Mode)
         .mustNotEqual(
-            PChar->animation == ANIMATION_HEALING &&
+            PChar->animation == xi::Animation::Healing &&
                 this->Mode == static_cast<uint32_t>(GP_CLI_COMMAND_CAMP_MODE::On),
             true,
             "Requested healing when already healing")
         .mustNotEqual(
-            PChar->animation != ANIMATION_HEALING &&
+            PChar->animation != xi::Animation::Healing &&
                 this->Mode == static_cast<uint32_t>(GP_CLI_COMMAND_CAMP_MODE::Off),
             true,
             "Requested stop healing when not healing");
@@ -66,7 +68,7 @@ void GP_CLI_COMMAND_CAMP::process(MapSession* PSession, CCharEntity* PChar) cons
     switch (static_cast<GP_CLI_COMMAND_CAMP_MODE>(this->Mode))
     {
         case GP_CLI_COMMAND_CAMP_MODE::Toggle:
-            if (PChar->animation == ANIMATION_HEALING)
+            if (PChar->animation == xi::Animation::Healing)
             {
                 disableHealing();
             }

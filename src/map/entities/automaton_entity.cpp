@@ -30,8 +30,11 @@
 #include "common/utils.h"
 #include "enmity_container.h"
 #include "enums/automaton.h"
+#include "lua/luautils.h"
 #include "recast_container.h"
 #include "status_effect_container.h"
+#include "utils/battleutils.h"
+#include "utils/charutils.h"
 #include "utils/mobutils.h"
 #include "utils/puppetutils.h"
 
@@ -65,29 +68,12 @@ uint8 CAutomatonEntity::attachment(const uint8 slotid) const
 
 auto CAutomatonEntity::hasAttachment(const uint8 attachment) const -> bool
 {
-    for (auto&& attachmentid : equip_.attachments)
-    {
-        if (attachmentid == attachment)
-        {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::contains(equip_.attachments, attachment);
 }
 
 void CAutomatonEntity::setEquip(const AutomatonEquip& equip)
 {
     equip_ = equip;
-}
-
-auto CAutomatonEntity::elementMax(const uint8 element) const -> uint8
-{
-    return elementMax_[element];
-}
-
-auto CAutomatonEntity::elementCapacity(const uint8 element) const -> uint8
-{
-    return elementEquip_[element];
 }
 
 void CAutomatonEntity::burdenTick()
@@ -96,7 +82,7 @@ void CAutomatonEntity::burdenTick()
     {
         if (burden > 0)
         {
-            burden -= std::clamp<uint8>(1 + PMaster->getMod(Mod::BURDEN_DECAY) + this->getMod(Mod::BURDEN_DECAY), 1, burden);
+            burden -= std::clamp<uint8>(1 + PMaster->getMod(xi::Mod::BURDEN_DECAY) + this->getMod(xi::Mod::BURDEN_DECAY), 1, burden);
         }
     }
 }
@@ -119,7 +105,7 @@ void CAutomatonEntity::setBurdenArray(const std::array<uint8, 8> burdenArray)
 auto CAutomatonEntity::addBurden(const uint8 element, int8 burden) -> uint8
 {
     // Handle Kenkonken Suppress Overload
-    if (PMaster->getMod(Mod::SUPPRESS_OVERLOAD) > 0)
+    if (PMaster->getMod(xi::Mod::SUPPRESS_OVERLOAD) > 0)
     {
         // TODO: Retail research, this is a best guess
         burden /= 3;
@@ -130,7 +116,7 @@ auto CAutomatonEntity::addBurden(const uint8 element, int8 burden) -> uint8
     if (burden > 0)
     {
         // check for overload
-        const int16 thresh = 30 + PMaster->getMod(Mod::OVERLOAD_THRESH);
+        const int16 thresh = 30 + PMaster->getMod(xi::Mod::OVERLOAD_THRESH);
         if (burden_[element] > thresh)
         {
             if (xirand::GetRandomNumber(100) < (burden_[element] - thresh + 5))
@@ -145,7 +131,7 @@ auto CAutomatonEntity::addBurden(const uint8 element, int8 burden) -> uint8
 
 auto CAutomatonEntity::overloadChance(const uint8 element) const -> uint8
 {
-    const int16 thresh = 30 + PMaster->getMod(Mod::OVERLOAD_THRESH);
+    const int16 thresh = 30 + PMaster->getMod(xi::Mod::OVERLOAD_THRESH);
 
     return std::clamp(burden_[element] - thresh + 5, 0, 255);
 }
@@ -154,11 +140,11 @@ void CAutomatonEntity::PostTick()
 {
     auto pre_mask = updatemask;
     CPetEntity::PostTick();
-    if (pre_mask && status != STATUS_TYPE::DISAPPEAR)
+    if (pre_mask && status != xi::Status::Disappear)
     {
-        if (PMaster && PMaster->objtype == TYPE_PC)
+        if (auto* PChar = dynamic_cast<CCharEntity*>(PMaster))
         {
-            charutils::SendExtendedJobPackets(static_cast<CCharEntity*>(PMaster));
+            charutils::SendExtendedJobPackets(PChar);
         }
     }
 }
@@ -186,19 +172,19 @@ void CAutomatonEntity::OnCastFinished(CMagicState& state, action_t& action)
     CMobEntity::OnCastFinished(state, action);
 
     auto* PSpell  = state.GetSpell();
-    auto* PTarget = static_cast<CBattleEntity*>(state.GetTarget());
+    auto* PTarget = state.target().resolve<CBattleEntity>();
 
     PRecastContainer->Add(RECAST_MAGIC, static_cast<Recast>(PSpell->getID()), action.recast);
 
     if (PSpell->tookEffect())
     {
-        puppetutils::TrySkillUP(this, SKILL_AUTOMATON_MAGIC, PTarget->GetMLevel());
+        puppetutils::TrySkillUP(this, xi::SkillType::AutomatonMagic, PTarget->GetMLevel());
 
-        if (PTarget && PTarget->objtype == TYPE_MOB && PTarget->allegiance != ALLEGIANCE_TYPE::PLAYER)
+        if (PTarget && PTarget->objtype == TYPE_MOB && PTarget->allegiance != xi::Allegiance::Player)
         {
             auto* PMob    = static_cast<CMobEntity*>(PTarget);
             auto* PMaster = dynamic_cast<CBattleEntity*>(this->PMaster);
-            if (PMaster && PMaster->objtype == TYPE_PC)
+            if (PMaster && dynamic_cast<const CCharEntity*>(PMaster) != nullptr)
             {
                 PMob->PEnmityContainer->AddBaseEnmity(PMaster);
             }
@@ -211,13 +197,13 @@ void CAutomatonEntity::OnMobSkillFinished(CMobSkillState& state, action_t& actio
     CMobEntity::OnMobSkillFinished(state, action);
 
     auto* PSkill  = state.GetSkill();
-    auto* PTarget = static_cast<CBattleEntity*>(state.GetTarget());
+    auto* PTarget = state.target().resolve<CBattleEntity>();
 
-    if (PTarget && PTarget->objtype == TYPE_MOB && PTarget->allegiance != ALLEGIANCE_TYPE::PLAYER)
+    if (PTarget && PTarget->objtype == TYPE_MOB && PTarget->allegiance != xi::Allegiance::Player)
     {
         auto* PMob    = static_cast<CMobEntity*>(PTarget);
         auto* PMaster = dynamic_cast<CBattleEntity*>(this->PMaster);
-        if (PMaster && PMaster->objtype == TYPE_PC)
+        if (PMaster && dynamic_cast<const CCharEntity*>(PMaster) != nullptr)
         {
             PMob->PEnmityContainer->AddBaseEnmity(PMaster);
         }
@@ -226,17 +212,31 @@ void CAutomatonEntity::OnMobSkillFinished(CMobSkillState& state, action_t& actio
     // Ranged attack skill up
     if (PSkill->getID() == 1949 && !PSkill->hasMissMsg())
     {
-        puppetutils::TrySkillUP(this, SKILL_AUTOMATON_RANGED, PTarget->GetMLevel());
+        puppetutils::TrySkillUP(this, xi::SkillType::AutomatonRanged, PTarget->GetMLevel());
+    }
+
+    // Weaponskill skill up - TODO: This should be able to happen on every hit of the weaponskill, but the fix isn't that simple at the moment.
+    else if (PTarget && !PSkill->hasMissMsg())
+    {
+        for (const auto skillId : battleutils::GetMobSkillList(m_MobSkillList))
+        {
+            if (skillId == PSkill->getID())
+            {
+                const auto skillType = frame() == AutomatonFrame::Sharpshot ? xi::SkillType::AutomatonRanged : xi::SkillType::AutomatonMelee;
+                puppetutils::TrySkillUP(this, skillType, PTarget->GetMLevel());
+                break;
+            }
+        }
     }
 }
 
 void CAutomatonEntity::Spawn()
 {
-    status = allegiance == ALLEGIANCE_TYPE::MOB ? STATUS_TYPE::UPDATE : STATUS_TYPE::NORMAL;
+    status = allegiance == xi::Allegiance::Mob ? xi::Status::Update : xi::Status::Normal;
     updatemask |= UPDATE_HP;
     PAI->Reset();
     PAI->EventHandler.triggerListener("SPAWN", this);
-    animation = ANIMATION_NONE;
+    animation = xi::Animation::None;
     m_OwnerID.clean();
     HideName(false);
     luautils::OnMobSpawn(this);

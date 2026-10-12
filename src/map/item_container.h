@@ -19,16 +19,18 @@
 ===========================================================================
 */
 
-#ifndef _CITEMCONTAINER_H
-#define _CITEMCONTAINER_H
+#pragma once
 
 #include "common/cbasetypes.h"
 #include "common/logging.h"
 #include "common/timer.h"
 
+#include <common/types/maybe.h>
+
+#include "items/item.h"
+
 #include <array>
 #include <memory>
-#include <optional>
 
 // TODO: Enum class
 enum CONTAINER_ID : uint8
@@ -53,16 +55,17 @@ enum CONTAINER_ID : uint8
     LOC_RECYCLEBIN   = 17,
     MAX_CONTAINER_ID = 18,
 };
+
 #define MAX_CONTAINER_SIZE 120
 #define ERROR_SLOTID       255
 DECLARE_FORMAT_AS_UNDERLYING(CONTAINER_ID);
 
-class CItem;
+class CCharEntity;
 
 class CItemContainer
 {
 public:
-    CItemContainer(uint16 LocationID);
+    CItemContainer(uint16 LocationID, const CCharEntity* owner = nullptr);
     ~CItemContainer();
 
     uint16 GetID() const;
@@ -79,7 +82,7 @@ public:
     auto InsertItem(std::unique_ptr<CItem> PItem) -> uint8;
     auto InsertItem(std::unique_ptr<CItem> PItem, uint8 slotID) -> uint8;
     auto RemoveItem(uint8 slotID) -> std::unique_ptr<CItem>;
-    auto MoveItemTo(uint8 fromSlot, CItemContainer& dst, std::optional<uint8> dstSlot = std::nullopt) -> uint8;
+    auto MoveItemTo(uint8 fromSlot, CItemContainer& dst, Maybe<uint8> dstSlot = std::nullopt) -> uint8;
 
     uint32            SortingPacket; // number of sort requests per clock
     timer::time_point LastSortingTime;
@@ -99,13 +102,28 @@ public:
         }
     }
 
+    // first item matching pred, or nullptr
+    template <typename F>
+    auto FindItem(F pred) -> CItem*
+    {
+        for (uint8 SlotID = 0; SlotID <= m_size; ++SlotID)
+        {
+            if (m_ItemList[SlotID] && pred(m_ItemList[SlotID].get()))
+            {
+                return m_ItemList[SlotID].get();
+            }
+        }
+
+        return nullptr;
+    }
+
 private:
     uint16 m_id;
     uint16 m_buff; // This appears to be the "usable" amount of your storage. You can have a locker size of 30, but a "buff" of 0 when it is out of use.
     uint8  m_size;
     uint8  m_count;
 
+    const CCharEntity* owner_;
+
     std::array<std::unique_ptr<CItem>, MAX_CONTAINER_SIZE + 1> m_ItemList{};
 };
-
-#endif

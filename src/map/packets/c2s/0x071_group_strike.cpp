@@ -22,12 +22,12 @@
 #include "0x071_group_strike.h"
 
 #include "alliance.h"
-#include "common/database.h"
 #include "common/ipc_structs.h"
 #include "entities/char_entity.h"
 #include "ipc_client.h"
 #include "items/item_linkshell.h"
 #include "linkshell.h"
+#include "packets/c2s/validation.h"
 #include "party.h"
 #include "utils/charutils.h"
 
@@ -137,7 +137,7 @@ void GP_CLI_COMMAND_GROUP_STRIKE::process(MapSession* PSession, CCharEntity* PCh
             }
 
             // Ensure the player has a linkshell equipped
-            if (auto* PItemLinkshell = reinterpret_cast<CItemLinkshell*>(PChar->getEquip(SLOT_LINK1)))
+            if (auto* PItemLinkshell = PChar->getLinkshell(SLOT_LINK1))
             {
                 message::send(ipc::LinkshellRemove{
                     .requesterId   = PChar->id,
@@ -156,7 +156,7 @@ void GP_CLI_COMMAND_GROUP_STRIKE::process(MapSession* PSession, CCharEntity* PCh
             }
 
             // Ensure the player has a linkshell equipped
-            if (auto* PItemLinkshell = reinterpret_cast<CItemLinkshell*>(PChar->getEquip(SLOT_LINK2)))
+            if (auto* PItemLinkshell = PChar->getLinkshell(SLOT_LINK2))
             {
                 message::send(ipc::LinkshellRemove{
                     .requesterId   = PChar->id,

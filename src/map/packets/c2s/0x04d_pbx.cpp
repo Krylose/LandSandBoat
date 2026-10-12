@@ -22,9 +22,9 @@
 #include "0x04d_pbx.h"
 
 #include "entities/char_entity.h"
-#include "trade_container.h"
+#include "map_session.h"
+#include "packets/c2s/validation.h"
 #include "utils/dboxutils.h"
-#include "utils/jailutils.h"
 #include "utils/zoneutils.h"
 
 auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar) const -> PacketValidationResult
@@ -43,7 +43,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .range("BoxNo", this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Incoming, GP_CLI_COMMAND_PBX_BOXNO::Outgoing)
-                .range("PostWorkNo", this->PostWorkNo, -1, 8)
+                .range("PostWorkNo", this->PostWorkNo, -1, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -52,7 +52,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .mustEqual(this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Outgoing, "BoxNo not Outgoing")
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .range("ItemStacks", this->ItemStacks, 0, 999999999);
         }
         break;
@@ -60,7 +60,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .mustEqual(this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Outgoing, "BoxNo not Outgoing")
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -69,7 +69,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .mustEqual(this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Outgoing, "BoxNo not Outgoing")
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -87,7 +87,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .mustEqual(this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Incoming, "BoxNo not Incoming")
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, 1, "ItemWorkNo not 1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -105,7 +105,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .mustEqual(this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Incoming, "BoxNo not Incoming")
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -114,7 +114,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .mustEqual(this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Incoming, "BoxNo not Incoming")
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -123,7 +123,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .range("BoxNo", this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Incoming, GP_CLI_COMMAND_PBX_BOXNO::Outgoing)
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -132,7 +132,7 @@ auto GP_CLI_COMMAND_PBX::validate(MapSession* PSession, const CCharEntity* PChar
         {
             pv
                 .range("BoxNo", this->BoxNo, GP_CLI_COMMAND_PBX_BOXNO::Incoming, GP_CLI_COMMAND_PBX_BOXNO::Outgoing)
-                .range("PostWorkNo", this->PostWorkNo, 0, 8)
+                .range("PostWorkNo", this->PostWorkNo, 0, 7)
                 .mustEqual(this->ItemWorkNo, -1, "ItemWorkNo not -1")
                 .mustEqual(this->ItemStacks, -1, "ItemStacks not -1");
         }
@@ -182,7 +182,7 @@ void GP_CLI_COMMAND_PBX::process(MapSession* PSession, CCharEntity* PChar) const
 {
     const auto charName = PChar->getName();
 
-    if (!zoneutils::IsResidentialArea(PChar) && PChar->m_GMlevel == 0 && !PChar->loc.zone->CanUseMisc(MISC_AH) && !PChar->loc.zone->CanUseMisc(MISC_MOGMENU))
+    if (!zoneutils::IsResidentialArea(PChar) && PChar->m_GMlevel == 0 && !PChar->loc.zone->CanUseMisc(xi::ZoneMisc::AuctionHouse) && !PChar->loc.zone->CanUseMisc(xi::ZoneMisc::Mogmenu))
     {
         ShowWarningFmt("DBOX: {} ({}) is trying to use the delivery box in a disallowed zone [{}]", charName, PChar->id, PChar->loc.zone->getName());
         return;

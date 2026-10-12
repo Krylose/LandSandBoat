@@ -21,7 +21,8 @@
 
 #include "inventory_sync_state.h"
 
-#include "common/database.h"
+#include <algorithm>
+
 #include "entities/char_entity.h"
 #include "items/item.h"
 #include "packets/s2c/0x020_item_attr.h"
@@ -63,6 +64,15 @@ void InventorySyncState::removeEquipChange(const CItem* item)
                   });
 }
 
+auto InventorySyncState::hasEquipChange(const CItem* item) const -> bool
+{
+    return std::ranges::any_of(pendingEquipChanges_,
+                               [&](const equip_change_t& x)
+                               {
+                                   return x.item == item;
+                               });
+}
+
 void InventorySyncState::clearEquipChanges()
 {
     pendingEquipChanges_.clear();
@@ -84,7 +94,7 @@ auto InventorySyncState::dirtyContainers() const -> const std::set<CONTAINER_ID>
     return dirtyContainers_;
 }
 
-void InventorySyncState::flushDirtyItems(CCharEntity* PChar)
+void InventorySyncState::flushDirtyItems(CCharEntity* PChar) const
 {
     for (uint8 loc = 0; loc < MAX_CONTAINER_ID; ++loc)
     {
@@ -94,19 +104,19 @@ void InventorySyncState::flushDirtyItems(CCharEntity* PChar)
             continue;
         }
 
-        for (uint8 slot = 0; slot <= PContainer->GetSize(); ++slot)
-        {
-            auto* PItem = PContainer->GetItem(slot);
-            if (PItem && PItem->isDirty())
+        PContainer->ForEachItem(
+            [&](CItem* PItem)
             {
-                db::preparedStmt("UPDATE char_inventory SET extra = ? WHERE charid = ? AND location = ? AND slot = ? LIMIT 1",
-                                 PItem->m_extra,
-                                 PChar->id,
-                                 loc,
-                                 slot);
-                PChar->pushPacket<GP_SERV_COMMAND_ITEM_ATTR>(PItem, static_cast<CONTAINER_ID>(loc), slot);
-                PItem->setDirty(false);
-            }
-        }
+                if (PItem->isDirty())
+                {
+                    db::preparedStmt("UPDATE char_inventory SET extra = ? WHERE charid = ? AND location = ? AND slot = ? LIMIT 1",
+                                     PItem->m_extra,
+                                     PChar->id,
+                                     loc,
+                                     PItem->getSlotID());
+                    PChar->pushPacket<GP_SERV_COMMAND_ITEM_ATTR>(PItem, static_cast<CONTAINER_ID>(loc), PItem->getSlotID());
+                    PItem->setDirty(false);
+                }
+            });
     }
 }

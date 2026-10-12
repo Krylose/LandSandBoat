@@ -24,13 +24,15 @@
 #include "arguments.h"
 #include "common/engine.h"
 #include "common/scheduler.h"
+#include "common/types/maybe.h"
 #include "common/zmq/zmq_service.h"
 
-#include <asio.hpp> // for signal_set
+#include <asio/signal_set.hpp>
 
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 struct ApplicationConfig
 {
@@ -69,6 +71,9 @@ public:
     void handleSignal(const std::error_code& error, int signal);
     void usercheck() const;
     void tryIncreaseRLimits();
+    void tryRaiseTimerResolution();
+    void tryRestoreTimerResolution();
+    void tryPreventBackgroundThrottling() const;
     void tryDisableQuickEditMode() const;
     void tryRestoreQuickEditMode() const;
     void prepareLogging();
@@ -87,7 +92,7 @@ public:
     //
 
     // Is expected to block until requestExit() is called and/or isRunning() returns false
-    virtual void run();
+    virtual auto run() -> bool;
 
     void requestExit();
     auto closeRequested() const -> bool;
@@ -108,6 +113,8 @@ protected:
     std::chrono::steady_clock::time_point startTime_{ std::chrono::steady_clock::now() };
 
     Scheduler scheduler_;
+
+    Maybe<Scheduler::Token> statementUsageToken_;
 
     ZMQService zmqService_;
 

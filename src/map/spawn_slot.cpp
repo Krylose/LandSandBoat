@@ -16,15 +16,16 @@
 
 #include "spawn_slot.h"
 
-#include <ranges>
-
+#include "ai/ai_container.h"
 #include "entities/mob_entity.h"
 #include "spawn_handler.h"
 #include "zone.h"
 
-void SpawnSlot::AddMob(CMobEntity* mob, const uint8 spawnChance)
+#include <algorithm>
+
+void SpawnSlot::AddMob(CMobEntity* mob, const uint8 spawnChance, const timer::duration cooldown)
 {
-    entries.push_back({ mob, spawnChance });
+    entries.push_back({ .mob = mob, .spawnChance = spawnChance, .cooldown = cooldown });
     mob->SetSpawnSlot(this);
 }
 
@@ -36,7 +37,7 @@ void SpawnSlot::RemoveMob(const CMobEntity* mob)
                   });
 }
 
-auto SpawnSlot::TrySpawn(const Maybe<uint32> specificMobId) -> bool
+auto SpawnSlot::TrySpawn(const Maybe<uint32> specificMobId, const SlotRoll kind) -> bool
 {
     // Get SpawnHandler from first mob's zone for condition checking
     SpawnHandler* spawnHandler = nullptr;
@@ -58,7 +59,7 @@ auto SpawnSlot::TrySpawn(const Maybe<uint32> specificMobId) -> bool
             return false;
         }
 
-        if (!it->mob->isAlive() && (!spawnHandler || spawnHandler->canSpawnNow(it->mob)))
+        if (!it->mob->PAI->IsSpawned() && (!spawnHandler || spawnHandler->canSpawnNow(it->mob)))
         {
             it->mob->m_AllowRespawn = true;
             it->mob->Spawn();
@@ -78,7 +79,7 @@ auto SpawnSlot::TrySpawn(const Maybe<uint32> specificMobId) -> bool
 
     for (auto&& entry : entries)
     {
-        if (entry.mob->isAlive())
+        if (entry.mob->PAI->IsSpawned())
         {
             allowedSpawn = entry.mob;
             break;
@@ -86,6 +87,17 @@ auto SpawnSlot::TrySpawn(const Maybe<uint32> specificMobId) -> bool
 
         // Use SpawnHandler to check spawn conditions (time, weather, etc.)
         if (spawnHandler && !spawnHandler->canSpawnNow(entry.mob))
+        {
+            continue;
+        }
+
+        if (entry.readyAt > timer::now())
+        {
+            continue;
+        }
+
+        // A placeholder always takes the first roll after a restart.
+        if (kind == SlotRoll::Boot && entry.spawnChance > 0)
         {
             continue;
         }
@@ -172,4 +184,20 @@ auto SpawnSlot::IsEmpty() const -> bool
 auto SpawnSlot::GetEntries() const -> const std::vector<SpawnSlotEntry>&
 {
     return entries;
+}
+
+void SpawnSlot::StartCooldown(const CMobEntity* mob)
+{
+    if (const auto entry = std::ranges::find(entries, mob, &SpawnSlotEntry::mob); entry != entries.end())
+    {
+        entry->readyAt = timer::now() + entry->cooldown;
+    }
+}
+
+void SpawnSlot::SetChance(const CMobEntity* mob, const uint8 spawnChance)
+{
+    if (const auto entry = std::ranges::find(entries, mob, &SpawnSlotEntry::mob); entry != entries.end())
+    {
+        entry->spawnChance = spawnChance;
+    }
 }

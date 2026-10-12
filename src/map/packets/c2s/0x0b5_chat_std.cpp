@@ -23,12 +23,15 @@
 
 #include "aman.h"
 #include "command_handler.h"
-#include "common/database.h"
 #include "common/ipc_structs.h"
+#include "common/lua.h"
 #include "common/settings.h"
 #include "entities/char_entity.h"
+#include "enums/msg_basic.h"
 #include "ipc_client.h"
 #include "linkshell.h"
+#include "map_session.h"
+#include "packets/c2s/validation.h"
 #include "packets/s2c/0x009_message.h"
 #include "packets/s2c/0x017_chat_std.h"
 #include "packets/s2c/0x029_battle_message.h"
@@ -116,7 +119,7 @@ void GP_CLI_COMMAND_CHAT_STD::process(MapSession* PSession, CCharEntity* PChar) 
     const auto messageLength              = std::min<std::size_t>((header.size * 4) - 0x6, sizeof(this->Str));
     const auto rawMessage                 = asStringFromUntrustedSource(this->Str, messageLength);
     const auto firstChar                  = rawMessage[0];
-    const auto rawMessageWithoutFirstChar = rawMessage.substr(1);
+    const auto rawMessageWithoutFirstChar = rawMessage.empty() ? std::string() : rawMessage.substr(1);
 
     // Handle possible !commands
     if (firstChar == '!' && !jailutils::InPrison(PChar))
@@ -258,7 +261,7 @@ void GP_CLI_COMMAND_CHAT_STD::process(MapSession* PSession, CCharEntity* PChar) 
             const auto isYellBanned     = PChar->getCharVar("[YELL]Banned") == 1;
             const auto isInYellCooldown = PChar->getCharVar("[YELL]Cooldown") == 1;
 
-            if (PChar->loc.zone->CanUseMisc(MISC_YELL))
+            if (PChar->loc.zone->CanUseMisc(xi::ZoneMisc::Yell))
             {
                 if (isYellBanned)
                 {
@@ -324,7 +327,7 @@ void GP_CLI_COMMAND_CHAT_STD::process(MapSession* PSession, CCharEntity* PChar) 
         case GP_CLI_COMMAND_CHAT_STD_KIND::AssistJ:
         {
             if (!settings::get<bool>("main.ASSIST_CHANNEL_ENABLED") ||
-                !PChar->loc.zone->CanUseMisc(MISC_ASSIST) ||
+                !PChar->loc.zone->CanUseMisc(xi::ZoneMisc::Assist) ||
                 PChar->aman().isMuted() ||
                 !PChar->aman().isAssistChannelEligible())
             {
@@ -350,7 +353,7 @@ void GP_CLI_COMMAND_CHAT_STD::process(MapSession* PSession, CCharEntity* PChar) 
         case GP_CLI_COMMAND_CHAT_STD_KIND::AssistE:
         {
             if (!settings::get<bool>("main.ASSIST_CHANNEL_ENABLED") ||
-                !PChar->loc.zone->CanUseMisc(MISC_ASSIST) ||
+                !PChar->loc.zone->CanUseMisc(xi::ZoneMisc::Assist) ||
                 PChar->aman().isMuted() ||
                 !PChar->aman().isAssistChannelEligible())
             {

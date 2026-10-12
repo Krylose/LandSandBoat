@@ -27,7 +27,6 @@
 
 #include <array>
 #include <limits>
-#include <optional>
 #include <vector>
 
 //
@@ -55,6 +54,7 @@
 //
 
 #pragma pack(push, 1)
+
 struct XimeshHeader
 {
     uint16 gridWidth{};
@@ -94,6 +94,7 @@ struct PlacementFlags
     uint32 mapIdHigh : 2;
     uint32 padding2 : 4;
 };
+
 #pragma pack(pop)
 
 //

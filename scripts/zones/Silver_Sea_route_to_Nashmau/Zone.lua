@@ -6,7 +6,26 @@ local ID = zones[xi.zone.SILVER_SEA_ROUTE_TO_NASHMAU]
 ---@type TZone
 local zoneObject = {}
 
+-- Deck mob slots.
+local slots =
+{
+    { id = ID.mob.APKALLU[1] },
+    { id = ID.mob.APKALLU[2] },
+    { id = ID.mob.BIGCLAW[1] },
+    { id = ID.mob.BIGCLAW[2] },
+    { id = ID.mob.CYAN_DEEP_PUGIL },
+    { id = ID.mob.KULSHEDRA },
+    { id = ID.mob.IMP, night = true },
+    { id = ID.mob.UTUKKU, night = true },
+    { id = ID.mob.AIR_ELEMENTAL, weather = { xi.weather.WIND, xi.weather.GALES } },
+    { id = ID.mob.THUNDER_ELEMENTAL, weather = { xi.weather.THUNDER, xi.weather.THUNDERSTORMS } },
+}
+
 zoneObject.onInitialize = function(zone)
+end
+
+zoneObject.onZoneTick = function(zone)
+    xi.ferry.onZoneTick(zone, slots)
 end
 
 zoneObject.onZoneIn = function(player, prevZone)
@@ -30,26 +49,34 @@ zoneObject.onZoneIn = function(player, prevZone)
     -- Check if Proteus pops this boat ride.
     if
         currentTime > proteus:getLocalVar('respawn') and
-        math.random(1, 100) <= 10
+        math.randomInt(1, 100) <= 10
     then
-        proteus:setRespawnTime(math.random(120, 180)) -- 2 to 3 minutes
+        proteus:setRespawnTime(math.randomInt(120, 180)) -- 2 to 3 minutes
     end
 
     return cs
 end
 
-zoneObject.onTransportEvent = function(player, prevZoneId, transportId)
-    player:startEvent(1025)
+zoneObject.onTransportEvent = function(player, prevZoneId, transportName)
+    player:startEvent(1028)
+end
+
+zoneObject.onTransportVoyageEnd = function(zone)
+    xi.ferry.onTransportVoyageEnd(zone)
 end
 
 zoneObject.onTriggerAreaEnter = function(player, triggerArea)
+end
+
+zoneObject.onZoneWeatherChange = function(weather)
+    xi.ferry.onWeatherChange(weather, slots)
 end
 
 zoneObject.onEventUpdate = function(player, csid, option, npc)
 end
 
 zoneObject.onEventFinish = function(player, csid, option, npc)
-    if csid == 1025 then
+    if csid == 1028 then
         player:setPos(0, 0, 0, 0, xi.zone.NASHMAU)
     end
 end

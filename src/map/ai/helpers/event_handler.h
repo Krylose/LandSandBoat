@@ -21,13 +21,15 @@
 
 #pragma once
 
-#include <functional>
-#include <unordered_map>
-#include <vector>
-
 #include <common/cbasetypes.h>
 
-#include <map/lua/luautils.h>
+#include <common/logging.h>
+#include <common/types/hash_map.h>
+#include <map/lua/sol_bindings.h>
+
+#include <functional>
+#include <string>
+#include <vector>
 
 class CAIEventHandler
 {
@@ -56,8 +58,8 @@ private:
 
     uint32 triggerDepth_ = 0;
 
-    std::unordered_map<std::string, std::vector<AIEvent>> eventListeners_;
-    std::vector<std::string>                              eventsToRemove_;
+    HashMap<std::string, std::vector<AIEvent>> eventListeners_;
+    std::vector<std::string>                   eventsToRemove_;
 };
 
 //

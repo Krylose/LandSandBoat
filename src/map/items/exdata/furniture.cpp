@@ -21,6 +21,8 @@
 
 #include "furniture.h"
 
+#include "base.h"
+
 void Exdata::Furniture::toTable(sol::table& table) const
 {
     table["on2ndFloor"] = static_cast<bool>(this->On2ndFloor);
@@ -29,7 +31,6 @@ void Exdata::Furniture::toTable(sol::table& table) const
     table["z"]          = this->Z;
     table["y"]          = this->Y;
     table["rotation"]   = this->Rotation;
-    table["order"]      = this->Order;
     table["signature"]  = Exdata::decodeSignature(this->Signature);
 }
 
@@ -41,7 +42,6 @@ void Exdata::Furniture::fromTable(const sol::table& data)
     this->Z          = Exdata::get_or<uint8_t>(data, "z", this->Z);
     this->Y          = Exdata::get_or<uint8_t>(data, "y", this->Y);
     this->Rotation   = Exdata::get_or<uint8_t>(data, "rotation", this->Rotation);
-    this->Order      = Exdata::get_or<uint8_t>(data, "order", this->Order);
 
     if (sol::optional<std::string> sig = data["signature"])
     {

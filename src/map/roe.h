@@ -22,11 +22,13 @@
 #pragma once
 
 #include <array>
+#include <string>
 #include <variant>
 #include <vector>
 
 #include "ai/helpers/event_handler.h"
 #include "common/cbasetypes.h"
+#include "entities/mob_entity.h"
 
 class CItemContainer;
 
@@ -71,6 +73,7 @@ const uint16 ROE_TRUST_ID[11] = {
 
 typedef std::array<uint16, 6>            RecordTimetable_D;
 typedef std::array<RecordTimetable_D, 7> RecordTimetable_W;
+
 struct RoeSystemData
 {
     RecordTimetable_W        TimedRecordTable;
@@ -113,11 +116,13 @@ struct RoeDatagram
     , data{ payload }
     {
     }
+
     RoeDatagram(const std::string& param, CMobEntity* payload)
     : luaKey{ param }
     , data{ payload }
     {
     }
+
     RoeDatagram(const std::string& param, const std::string& payload)
     : luaKey{ param }
     , data{ payload }

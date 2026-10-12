@@ -19,13 +19,10 @@
 ===========================================================================
 */
 
-#ifndef _CHARRECASTCONTAINER_H
-#define _CHARRECASTCONTAINER_H
+#pragma once
 
 #include "common/cbasetypes.h"
 #include "recast_container.h"
-
-#include <vector>
 
 class CCharEntity;
 
@@ -33,9 +30,11 @@ class CCharRecastContainer : public CRecastContainer
 {
 public:
     CCharRecastContainer(CCharEntity*);
+
     virtual ~CCharRecastContainer()
     {
     }
+
     virtual void          Check() override;
     virtual void          Add(RECASTTYPE type, Recast id, timer::duration duration, timer::duration chargeTime, uint8 maxCharges) override;
     virtual void          Del(RECASTTYPE type) override;
@@ -52,5 +51,3 @@ protected:
 private:
     CCharEntity* m_PChar;
 };
-
-#endif

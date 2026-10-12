@@ -21,6 +21,7 @@
 
 #include "item_furnishing.h"
 
+#include "exdata/base.h"
 #include "exdata/furniture.h"
 #include "exdata/mannequin.h"
 
@@ -169,16 +170,6 @@ void CItemFurnishing::setRotation(uint8 rotation)
 uint8 CItemFurnishing::getRotation()
 {
     return this->exdata<Exdata::Furniture>().Rotation;
-}
-
-void CItemFurnishing::setOrder(uint8 order)
-{
-    this->exdata<Exdata::Furniture>().Order = order;
-}
-
-uint8 CItemFurnishing::getOrder()
-{
-    return this->exdata<Exdata::Furniture>().Order;
 }
 
 void CItemFurnishing::setMannequinRace(uint8 race)

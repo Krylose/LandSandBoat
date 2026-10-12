@@ -21,15 +21,20 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 namespace Exdata
 {
+
 // Moogle Storage Slips. 24-byte bitmask, bit N = item at index N in porter_slip_items.lua.
 #pragma pack(push, 1)
+
 struct StorageSlip
 {
     uint8_t Items[24];
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <memory>
@@ -31,14 +32,16 @@
 #include <utility>
 #include <vector>
 
-#include "earth_time.h"
-#include "tracy.h"
-#include "vanadiel_clock.h"
+#include <common/earth_time.h>
+#include <common/tracy.h>
+#include <common/vanadiel_clock.h>
 
-#include "types/flag.h"
-#include "types/fn.h"
-#include "types/maybe.h"
-#include "types/variant.h"
+#include <common/types/box.h>
+#include <common/types/flag.h>
+#include <common/types/fn.h>
+#include <common/types/maybe.h>
+#include <common/types/variant.h>
+
 namespace xi
 {
 
@@ -135,6 +138,11 @@ struct bitset
 
     void set(std::size_t pos, bool value)
     {
+        if (pos >= N)
+        {
+            return;
+        }
+
         if (value)
         {
             data[pos / 8] |= (1 << (pos % 8));
@@ -152,6 +160,11 @@ struct bitset
 
     bool get(std::size_t pos) const
     {
+        if (pos >= N)
+        {
+            return false;
+        }
+
         return (data[pos / 8] >> (pos % 8)) & 0x01;
     }
 
@@ -162,19 +175,16 @@ struct bitset
 
     bool none() const
     {
-        for (std::size_t i = 0; i < storage_size; ++i)
-        {
-            if (data[i] != 0)
-            {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(data,
+                                   [](const uint8 byte)
+                                   {
+                                       return byte == 0;
+                                   });
     }
 
     void reset()
     {
-        std::fill(data.begin(), data.end(), 0);
+        std::ranges::fill(data, 0);
     }
 
     void reset(std::size_t pos)
@@ -192,6 +202,11 @@ struct bitset
 
     void flip(std::size_t pos)
     {
+        if (pos >= N)
+        {
+            return;
+        }
+
         data[pos / 8] ^= (1 << (pos % 8));
     }
 
@@ -208,6 +223,13 @@ struct bitset
 
     bit_reference operator[](std::size_t pos)
     {
+        if (pos >= N)
+        {
+            static thread_local uint8 discard;
+            discard = 0;
+            return bit_reference(discard, 0);
+        }
+
         return bit_reference(data[pos / 8], pos % 8);
     }
 

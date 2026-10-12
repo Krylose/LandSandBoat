@@ -21,16 +21,21 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 namespace Exdata
 {
+
 // BCNM orbs, testimonies, and other items that track use count at byte 0.
 #pragma pack(push, 1)
+
 struct WornItem
 {
     uint8_t UseCount;
     uint8_t padding00[23];
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

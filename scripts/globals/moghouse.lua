@@ -10,9 +10,6 @@ xi.moghouse = xi.moghouse or {}
 -----------------------------------
 -- Mog Locker constants
 -----------------------------------
-local mogLockerStartTimestamp   = 1009810800 -- unix timestamp for 2001/12/31 15:00
-local mogLockerTimestampVarName = 'mog-locker-expiry-timestamp'
-
 xi.moghouse.MOGLOCKER_ALZAHBI_VALID_DAYS    = 7
 xi.moghouse.MOGLOCKER_ALLAREAS_VALID_DAYS   = 5
 xi.moghouse.MOGLOCKER_PLAYERVAR_ACCESS_TYPE = 'mog-locker-access-type'
@@ -30,7 +27,6 @@ xi.moghouse.moghouseZones =
     xi.zone.SOUTHERN_SAN_DORIA_S, -- 80
     xi.zone.BASTOK_MARKETS_S,     -- 87
     xi.zone.WINDURST_WATERS_S,    -- 94
-    xi.zone.RESIDENTIAL_AREA,     -- 219
     xi.zone.SOUTHERN_SAN_DORIA,   -- 230
     xi.zone.NORTHERN_SAN_DORIA,   -- 231
     xi.zone.PORT_SAN_DORIA,       -- 232
@@ -179,7 +175,7 @@ xi.moghouse.set2ndFloorStyle = function(player, style)
 end
 
 xi.moghouse.getAvailableMusic = function(player)
-    -- See documentation/songdata.txt or documentation/MusicIDs.txt for song data.
+    -- See docs/songdata.txt or docs/MusicIDs.txt for song data.
     local possibleSongs = {}
 
     local orchestrion  = player:findItem(xi.item.ORCHESTRION)
@@ -234,7 +230,7 @@ xi.moghouse.trySetMusic = function(player)
     if #possibleSongs > 0 then
         -- This needs a moment before music changes can take effect
         player:timer(1000, function(playerArg)
-            playerArg:changeMusic(6, utils.randomEntry(possibleSongs))
+            playerArg:changeMusic(xi.musicSlot.MOG_HOUSE, utils.randomEntry(possibleSongs))
         end)
     end
 end
@@ -251,13 +247,28 @@ xi.moghouse.onMoghouseZoneEvent = function(player, prevZone)
         player:getYPos() == 0 and
         player:getZPos() == 0
     then
+        -- Visitors leaving someone else's Mog House go back to the NPC they came from
+        local visitNpcId = player:getCharVar('mh-visit-npc')
+        if visitNpcId ~= 0 then
+            player:setCharVar('mh-visit-npc', 0)
+
+            local visitNpc = GetNPCByID(visitNpcId)
+            if visitNpc and visitNpc:getZoneID() == player:getZoneID() then
+                local npcRot  = visitNpc:getRotPos()
+                local radians = npcRot * (math.pi * 2 / 256)
+
+                player:setPos(visitNpc:getXPos() + 2 * math.cos(radians), visitNpc:getYPos(), visitNpc:getZPos() - 2 * math.sin(radians), (npcRot + 128) % 256)
+
+                return -1
+            end
+        end
 
         local zoneId                                = player:getZoneID()
         local prevZoneId                            = player:getPreviousZone()
         local prevZoneLineID                        = player:getPreviousZoneLineID()
         local moghouseEntrance                      = zoneId == prevZoneId and moghouseZoneLines[prevZoneLineID] or 1
         local x, y, z, r, randomizedAxis, randomMax = unpack(xi.moghouse.exits[zoneId][moghouseEntrance])
-        local randomOffset                          = math.random(-randomMax * 1000, randomMax * 1000) -- offset -/+ from center point
+        local randomOffset                          = math.randomInt(-randomMax * 1000, randomMax * 1000) -- offset -/+ from center point
         local offsetValue                           = randomOffset / 1000 -- 0.000 - N.N00 variance
 
         -- A few moghouses are rotated so we handle them first.
@@ -289,6 +300,19 @@ xi.moghouse.onMoghouseZoneIn = function(player, prevZone)
 
     player:setPos(0, 0, 0, 192)
 
+    if not player:inMogHouse(xi.mogHouse.OWN) then
+        local owner = player:getMogHouseOwner()
+        local song  = owner and owner:getLocalVar('Symphonic_Curator_Music') or 0
+
+        if song ~= 0 then
+            player:timer(1000, function(playerArg)
+                playerArg:changeMusic(xi.musicSlot.MOG_HOUSE, song)
+            end)
+        end
+
+        return cs
+    end
+
     -- Moghouse data (bit-packed)
     -- 0x0001: SANDORIA exit quest flag
     -- 0x0002: BASTOK exit quest flag
@@ -311,6 +335,7 @@ xi.moghouse.onMoghouseZoneIn = function(player, prevZone)
     -- Reset: !exec player:setMoghouseFlag(0)
     -- Complete quests: !exec player:setMoghouseFlag(7)
     if
+        xi.settings.main.ENABLE_MOG_HOUSE_2F == 1 and
         xi.moghouse.inMogHouseInHomeNation(player) and
         growingFlowers and
         aLadysHeart and
@@ -331,34 +356,47 @@ xi.moghouse.onMoghouseZoneIn = function(player, prevZone)
     return cs
 end
 
-xi.moghouse.moogleTrade = function(player, npc, trade)
-    if player:inMogHouse() then
-        local numBronze = trade:getItemQty(xi.item.IMPERIAL_BRONZE_PIECE)
+xi.moghouse.visitNpcOnEventFinish = function(player, csid, option, npc)
+    -- Option is the picked host's char id, anything else is a cancel or the explanation (bit 31)
+    if option <= 0 or option >= utils.EVENT_CANCELLED_OPTION then
+        return
+    end
 
-        if numBronze > 0 then
-            if xi.moghouse.addMogLockerExpiryTime(player, numBronze) then
-                player:tradeComplete()
-                player:messageSpecial(zones[player:getZoneID()].text.MOG_LOCKER_OFFSET + 2, xi.moghouse.getMogLockerExpiryTimestamp(player))
-            end
+    if not player:visitMogHouse(option, npc) then
+        player:messageSpecial(zones[player:getZoneID()].text.MOG_HOUSE_NOT_OPEN)
+    end
+end
+
+xi.moghouse.moogleTrade = function(player, npc, trade)
+    if not player:inMogHouse() then
+        return
+    end
+
+    local numBronze = trade:getItemQty(xi.item.IMPERIAL_BRONZE_PIECE)
+
+    if numBronze > 0 then
+        if xi.moghouse.addMogLockerExpiryTime(player, numBronze) then
+            player:tradeComplete()
+            player:messageSpecial(zones[player:getZoneID()].text.MOG_LOCKER_OFFSET + 2, xi.moghouse.getMogLockerExpiryTimestamp(player))
+        end
+    end
+
+    local eggComponents =
+    {
+        xi.item.EGG_LOCKER,
+        xi.item.EGG_TABLE,
+        xi.item.EGG_STOOL,
+        xi.item.EGG_LANTERN,
+    }
+
+    if npcUtil.tradeHasExactly(trade, eggComponents) then
+        if npcUtil.giveItem(player, xi.item.EGG_BUFFET) then
+            player:confirmTrade()
         end
 
-        local eggComponents =
-        {
-            xi.item.EGG_LOCKER,
-            xi.item.EGG_TABLE,
-            xi.item.EGG_STOOL,
-            xi.item.EGG_LANTERN,
-        }
-
-        if npcUtil.tradeHasExactly(trade, eggComponents) then
-            if npcUtil.giveItem(player, xi.item.EGG_BUFFET) then
-                player:confirmTrade()
-            end
-
-        elseif npcUtil.tradeHasExactly(trade, xi.item.EGG_BUFFET) then
-            if npcUtil.giveItem(player, eggComponents) then
-                player:confirmTrade()
-            end
+    elseif npcUtil.tradeHasExactly(trade, xi.item.EGG_BUFFET) then
+        if npcUtil.giveItem(player, eggComponents) then
+            player:confirmTrade()
         end
     end
 end
@@ -387,7 +425,7 @@ end
 
 -- Unlocks a mog locker for a player. Returns the 'expired' timestamp (-1)
 xi.moghouse.unlockMogLocker = function(player)
-    player:setCharVar(mogLockerTimestampVarName, -1)
+    player:setCharVar('mog-locker-expiry-timestamp', -1)
 
     -- Safety check in case some servers auto-set 80 slots for mog locker items.
     if player:getContainerSize(xi.inv.MOGLOCKER) == 0 then
@@ -404,6 +442,28 @@ xi.moghouse.setMogLockerAccessType = function(player, accessType)
     return accessType
 end
 
+-- Toggles the mog locker access type, scaling the remaining lease time by the ratio of the new to old day/bronze rate.
+xi.moghouse.switchMogLockerAccessType = function(player)
+    local isAllAreas = xi.moghouse.getMogLockerAccessType(player) == xi.moghouse.lockerAccessType.ALLAREAS
+    local oldDays    = isAllAreas and xi.moghouse.MOGLOCKER_ALLAREAS_VALID_DAYS or xi.moghouse.MOGLOCKER_ALZAHBI_VALID_DAYS
+    local newDays    = isAllAreas and xi.moghouse.MOGLOCKER_ALZAHBI_VALID_DAYS or xi.moghouse.MOGLOCKER_ALLAREAS_VALID_DAYS
+    local newType    = isAllAreas and xi.moghouse.lockerAccessType.ALZAHBI or xi.moghouse.lockerAccessType.ALLAREAS
+
+    xi.moghouse.setMogLockerAccessType(player, newType)
+
+    local expiryTs = xi.moghouse.getMogLockerExpiryTimestamp(player)
+    if expiryTs ~= nil and expiryTs ~= -1 then
+        local now       = GetSystemTime() - xi.time.VANADIEL_EPOCH
+        local remaining = expiryTs - now
+        if remaining > 0 then
+            local newExpiry = now + math.floor(remaining * newDays / oldDays)
+            player:setCharVar('mog-locker-expiry-timestamp', newExpiry)
+        end
+    end
+
+    return newType
+end
+
 -- Gets the mog locker access type (all area or alzahbi only). Returns the new access type.
 xi.moghouse.getMogLockerAccessType = function(player)
     return player:getCharVar(xi.moghouse.MOGLOCKER_PLAYERVAR_ACCESS_TYPE)
@@ -411,16 +471,16 @@ end
 
 -- Gets the expiry time for your locker. A return value of -1 is expired. A return value of nil means mog locker hasn't been unlocked.
 xi.moghouse.getMogLockerExpiryTimestamp = function(player)
-    local expiryTime = player:getCharVar(mogLockerTimestampVarName)
+    local expiryTime = player:getCharVar('mog-locker-expiry-timestamp')
 
     if expiryTime == 0 then
         return nil
     end
 
-    local now = GetSystemTime() - mogLockerStartTimestamp
+    local now = GetSystemTime() - xi.time.VANADIEL_EPOCH
 
     if now > expiryTime then
-        player:setCharVar(mogLockerTimestampVarName, -1)
+        player:setCharVar('mog-locker-expiry-timestamp', -1)
 
         return -1
     end
@@ -447,13 +507,13 @@ xi.moghouse.addMogLockerExpiryTime = function(player, numBronze)
     end
 
     if currentTs == -1 then
-        currentTs = GetSystemTime() - mogLockerStartTimestamp
+        currentTs = GetSystemTime() - xi.time.VANADIEL_EPOCH
     end
 
     local timeIncrease = 60 * 60 * 24 * numDaysPerBronze * numBronze
-    local newTs        = currentTs + timeIncrease
+    local newTs        = utils.clamp(currentTs + timeIncrease, 0, 2147483647) -- Bandaid to prevent overflow. SQL char_var calues are INT(11)
 
-    player:setCharVar(mogLockerTimestampVarName, newTs)
+    player:setCharVar('mog-locker-expiry-timestamp', newTs)
 
     -- Send an invent size packet to enable the items if they weren't.
     player:changeContainerSize(xi.inv.MOGLOCKER, 0)

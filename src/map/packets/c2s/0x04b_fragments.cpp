@@ -22,11 +22,9 @@
 #include "0x04b_fragments.h"
 
 #include "entities/char_entity.h"
-#include "enums/chat_message_type.h"
 #include "fishingcontest.h"
 #include "lua/luautils.h"
-#include "packets/char_sync.h"
-#include "packets/s2c/0x017_chat_std.h"
+#include "packets/c2s/validation.h"
 #include "packets/s2c/0x04d_fragments_fishranking.h"
 #include "packets/s2c/0x04d_fragments_servmes.h"
 
@@ -76,12 +74,13 @@ void GP_CLI_COMMAND_FRAGMENTS::process(MapSession* PSession, CCharEntity* PChar)
         // Create a holding vector for entries to be transmitted
         std::vector<FishingContestEntry> entries;
 
-        const int   maxFakes     = settings::get<int>("main.MAX_FAKE_ENTRIES");
-        const uint8 realEntries  = fishingcontest::FishingRankEntryCount();
-        const uint8 fakeEntries  = realEntries >= maxFakes ? 0 : maxFakes - realEntries;
-        uint8       totalEntries = realEntries + fakeEntries;
-        uint8       entryVal     = 0;
-        const uint8 blockSize    = sizeof(FishingContestEntry); // Should be 36
+        const int   maxFakes            = settings::get<int>("main.MAX_FAKE_ENTRIES");
+        const uint8 realEntries         = fishingcontest::FishingRankEntryCount();
+        const uint8 fakeEntries         = realEntries >= maxFakes ? 0 : maxFakes - realEntries;
+        uint8       totalEntries        = realEntries + fakeEntries;
+        uint8       entryVal            = 0;
+        const uint8 blockSize           = sizeof(FishingContestEntry); // Should be 36
+        const uint8 maxEntriesPerPacket = 6;                           // self block plus five leaderboard entries
 
         FishingContestEntry selfEntry = {};
 
@@ -95,7 +94,7 @@ void GP_CLI_COMMAND_FRAGMENTS::process(MapSession* PSession, CCharEntity* PChar)
             const FishingContestEntry* PEntry = fishingcontest::GetPlayerEntry(PChar);
 
             // For any chunk, we include at least the char name and the total number of entries
-            std::strncpy(selfEntry.name, PChar->name.c_str(), PChar->name.size());
+            PChar->name.copy(selfEntry.name, sizeof(selfEntry.name) - 1);
             selfEntry.resultCount = totalEntries;
 
             if (PEntry != nullptr)
@@ -121,7 +120,7 @@ void GP_CLI_COMMAND_FRAGMENTS::process(MapSession* PSession, CCharEntity* PChar)
                 selfEntry.slvl       = PChar->GetSLevel();
                 selfEntry.race       = PChar->mainlook.race;
                 selfEntry.allegiance = static_cast<uint8>(PChar->allegiance);
-                selfEntry.fishRank   = PChar->RealSkills.rank[SKILLTYPE::SKILL_FISHING];
+                selfEntry.fishRank   = PChar->RealSkills.rank[static_cast<uint8>(xi::SkillType::Fishing)];
                 selfEntry.submitTime = earth_time::vanadiel_timestamp();
             }
         }
@@ -131,7 +130,7 @@ void GP_CLI_COMMAND_FRAGMENTS::process(MapSession* PSession, CCharEntity* PChar)
         // Add the next five blocks until we are out of entries
         if (msgChunk == 1 || msgChunk == 2)
         {
-            while (entries.size() <= (this->data_size / blockSize))
+            while (entries.size() < maxEntriesPerPacket && entries.size() <= (this->data_size / blockSize))
             {
                 // Create a copy of the ranking entry and hold it in the local entry vector
                 // This vector is cleared once the packets are sent

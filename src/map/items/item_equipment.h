@@ -19,8 +19,7 @@
 ===========================================================================
 */
 
-#ifndef _CITEMEQUIPMENT_H
-#define _CITEMEQUIPMENT_H
+#pragma once
 
 #include <vector>
 
@@ -54,7 +53,7 @@ public:
     {
         xi::Latent ConditionsID;
         uint16     ConditionsValue;
-        Mod        ModValue;
+        xi::Mod    ModValue;
         int16      ModPower;
     };
 
@@ -68,7 +67,7 @@ public:
     uint16 getRemoveSlotId() const;
     uint16 getRemoveSlotLookId() const;
     uint8  getShieldAbsorption() const;
-    int16  getModifier(Mod mod) const;
+    int16  getModifier(xi::Mod mod) const;
     uint8  getSlotType() const;
     auto   getAugment(uint8 slot) const -> uint16;
     auto   getTrialNumber() const -> uint16;
@@ -95,19 +94,23 @@ public:
     void ApplyAugment(uint8 slot);
 
     void addModifier(CModifier modifier);
-    void addModifier(Mod mod, int16 modValue)
+
+    void addModifier(xi::Mod mod, int16 modValue)
     {
         return addModifier(CModifier(mod, modValue));
     };
+
     void addPetModifier(CPetModifier modifier);
-    void addPetModifier(Mod mod, PetModType petType, int16 modValue)
+
+    void addPetModifier(xi::Mod mod, PetModType petType, int16 modValue)
     {
         return addPetModifier(CPetModifier(mod, petType, modValue));
     };
-    void addLatent(xi::Latent ConditionsID, uint16 ConditionsValue, Mod ModValue, int16 ModPower);
 
-    bool delModifier(Mod mod, int16 modValue);
-    bool delPetModifier(Mod mod, PetModType petType, int16 modValue);
+    void addLatent(xi::Latent ConditionsID, uint16 ConditionsValue, xi::Mod ModValue, int16 ModPower);
+
+    bool delModifier(xi::Mod mod, int16 modValue);
+    bool delPetModifier(xi::Mod mod, PetModType petType, int16 modValue);
 
     std::vector<CModifier>    modList;
     std::vector<CPetModifier> petModList;
@@ -132,5 +135,3 @@ private:
 
     void SetAugmentMod(uint16 type, uint8 value);
 };
-
-#endif

@@ -25,15 +25,15 @@ local baseNpcEvents =
 
 local tradeItems =
 {
-    { xi.item.LIZARD_TAIL, xi.monstrosity.species.LIZARD },
-    { xi.item.RABBIT_HIDE, xi.monstrosity.species.RABBIT },
-    { xi.item.TWO_LEAF_MANDRAGORA_BUD, xi.monstrosity.species.MANDRAGORA },
+    { xi.item.LIZARD_TAIL,             xi.monstrositySpecies.LIZARD     },
+    { xi.item.RABBIT_HIDE,             xi.monstrositySpecies.RABBIT     },
+    { xi.item.TWO_LEAF_MANDRAGORA_BUD, xi.monstrositySpecies.MANDRAGORA },
 }
 
 local suspiciousCityNpc =
 {
     onTrade = function(player, npc, trade)
-        if player:hasKeyItem(xi.ki.RING_OF_SUPERNAL_DISJUNCTION) then
+        if player:hasKeyItem(xi.keyItem.RING_OF_SUPERNAL_DISJUNCTION) then
             return
         end
 
@@ -49,7 +49,7 @@ local suspiciousCityNpc =
     onTrigger = function(player, npc)
         local baseEvent = baseNpcEvents[player:getZoneID()]
 
-        if not player:hasKeyItem(xi.ki.RING_OF_SUPERNAL_DISJUNCTION) then
+        if not player:hasKeyItem(xi.keyItem.RING_OF_SUPERNAL_DISJUNCTION) then
             return quest:event(baseEvent)
         else
             return quest:event(baseEvent + 2)
@@ -57,8 +57,16 @@ local suspiciousCityNpc =
     end,
 }
 
+-- The client lists the starters as rabbit, lizard, mandragora.
+local starterCutsceneIndex =
+{
+    [xi.monstrositySpecies.RABBIT    ] = 1,
+    [xi.monstrositySpecies.LIZARD    ] = 2,
+    [xi.monstrositySpecies.MANDRAGORA] = 3,
+}
+
 local tradeEventFinish = function(player, csid, option, npc)
-    npcUtil.giveKeyItem(player, xi.ki.RING_OF_SUPERNAL_DISJUNCTION)
+    npcUtil.giveKeyItem(player, xi.keyItem.RING_OF_SUPERNAL_DISJUNCTION)
     local species = player:getLocalVar('MONSTROSITY_UNLOCK')
     if species > 0 then
         xi.monstrosity.unlockStartingMONs(player, species)
@@ -68,7 +76,7 @@ end
 local odysseanPassageNpc =
 {
     onTrigger = function(player, npc)
-        if player:hasKeyItem(xi.ki.RING_OF_SUPERNAL_DISJUNCTION) then
+        if player:hasKeyItem(xi.keyItem.RING_OF_SUPERNAL_DISJUNCTION) then
             return quest:progressEvent(baseNpcEvents[player:getZoneID()] + 3)
         end
     end,
@@ -125,7 +133,7 @@ quest.sections =
             ['Suspicious_Hume']  =
             {
                 onTrigger = function(player, npc)
-                    if not player:hasKeyItem(xi.ki.RING_OF_SUPERNAL_DISJUNCTION) then
+                    if not player:hasKeyItem(xi.keyItem.RING_OF_SUPERNAL_DISJUNCTION) then
                         return quest:event(41)
                     else
                         return quest:event(42)
@@ -173,8 +181,10 @@ quest.sections =
             {
                 [2] = function(player, csid, option, npc)
                     if option == 1 then
-                        -- TODO: Character appearance has to be encoded here to make the CS show the right character
-                        player:updateEvent(7, 10, 2, 1024, 2, 0, 0, 0)
+                        -- The cutscene draws the player's race and face, then the starter in the client's order.
+                        -- TODO: Check getFace() matches the client's face numbering.
+                        local starter = starterCutsceneIndex[player:getMonstrosityData().monstrosityId] or 0
+                        player:updateEvent(player:getRace(), player:getFace(), starter)
                     end
                 end,
             },

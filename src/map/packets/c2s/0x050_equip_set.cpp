@@ -23,6 +23,7 @@
 
 #include "entities/char_entity.h"
 #include "lua/luautils.h"
+#include "packets/c2s/validation.h"
 #include "utils/charutils.h"
 
 namespace
@@ -86,7 +87,6 @@ auto GP_CLI_COMMAND_EQUIP_SET::validate(MapSession* PSession, const CCharEntity*
 void GP_CLI_COMMAND_EQUIP_SET::process(MapSession* PSession, CCharEntity* PChar) const
 {
     charutils::EquipItem(PChar, this->PropertyItemIndex, this->EquipKind, this->Category);
-    PChar->RequestPersist(CHAR_PERSIST::EQUIP);
     luautils::CheckForGearSet(PChar); // check for gear set on gear change
     PChar->UpdateHealth();
     PChar->retriggerLatents = true; // retrigger all latents later because our gear has changed

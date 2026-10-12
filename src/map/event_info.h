@@ -19,12 +19,12 @@
 ===========================================================================
 */
 
-#ifndef _EVENT_INFO_H
-#define _EVENT_INFO_H
+#pragma once
 
 #include "common/cbasetypes.h"
 #include "common/mmo.h"
 
+#include <algorithm>
 #include <bitset>
 #include <deque>
 #include <map>
@@ -64,10 +64,11 @@ struct EventInfo : EventPrep
     uint16             interruptText = 0;
     uint32             eventFlags    = 0;
     bool               canSkip       = false;
+    bool               isHidden      = false;
 
     bool hasCutsceneOption(int32 _option)
     {
-        return std::find(cutsceneOptions.begin(), cutsceneOptions.end(), _option) != cutsceneOptions.end();
+        return std::ranges::contains(cutsceneOptions, _option);
     }
 
     void reset()
@@ -82,7 +83,6 @@ struct EventInfo : EventPrep
         eventFlags = 0;
         type       = NORMAL;
         canSkip    = false;
+        isHidden   = false;
     }
 };
-
-#endif

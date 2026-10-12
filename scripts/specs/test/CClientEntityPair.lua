@@ -30,10 +30,29 @@ end
 function CClientEntityPair:gotoZone(zoneId, pos)
 end
 
+---Zone into the player's own Mog House in the given zone
+---@param zoneId xi.zone Zone whose Mog House to enter
+---@return nil
+function CClientEntityPair:gotoMogHouse(zoneId)
+end
+
 ---Check if the client is currently waiting for a zone change
 ---@nodiscard
 ---@return boolean
 function CClientEntityPair:isPendingZone()
+end
+
+---Search comment the server currently holds for the player
+---@nodiscard
+---@return string
+function CClientEntityPair:getSearchMessage()
+end
+
+---Linkshell id in slot 1 or 2, 0 if none
+---@nodiscard
+---@param lsNum integer 1 or 2
+---@return integer
+function CClientEntityPair:getLinkshellId(lsNum)
 end
 
 ---Get the inventory slot of an item with the specified quantity.

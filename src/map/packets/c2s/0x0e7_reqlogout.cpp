@@ -22,8 +22,8 @@
 #include "0x0e7_reqlogout.h"
 
 #include "entities/char_entity.h"
+#include "packets/c2s/validation.h"
 #include "status_effect_container.h"
-#include "utils/charutils.h"
 
 auto GP_CLI_COMMAND_REQLOGOUT::validate(MapSession* PSession, const CCharEntity* PChar) const -> PacketValidationResult
 {

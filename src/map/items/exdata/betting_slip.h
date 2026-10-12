@@ -21,11 +21,14 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 namespace Exdata
 {
+
 #pragma pack(push, 1)
+
 struct BettingSlip
 {
     uint32_t RaceId : 18;
@@ -39,5 +42,7 @@ struct BettingSlip
     void toTable(sol::table& table) const;
     void fromTable(const sol::table& data);
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

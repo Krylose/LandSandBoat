@@ -19,10 +19,7 @@
 ===========================================================================
 */
 
-#ifndef _CCHARSTATUSPACKET_H
-#define _CCHARSTATUSPACKET_H
-
-#include "common/cbasetypes.h"
+#pragma once
 
 #include "basic.h"
 
@@ -33,5 +30,3 @@ class CCharStatusPacket : public CBasicPacket
 public:
     CCharStatusPacket(CCharEntity* PChar);
 };
-
-#endif

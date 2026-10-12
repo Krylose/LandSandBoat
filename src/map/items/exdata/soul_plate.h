@@ -21,11 +21,14 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 namespace Exdata
 {
+
 #pragma pack(push, 1)
+
 struct SoulPlate
 {
     uint8_t  Signature[14]; // Retail: 18 bytes
@@ -40,5 +43,7 @@ struct SoulPlate
     void toTable(sol::table& table) const;
     void fromTable(const sol::table& data);
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

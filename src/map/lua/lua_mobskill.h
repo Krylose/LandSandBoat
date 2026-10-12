@@ -19,13 +19,22 @@
 ===========================================================================
 */
 
-#ifndef _LUAMOBSKILL_H
-#define _LUAMOBSKILL_H
+#pragma once
 
 #include "common/cbasetypes.h"
-#include "luautils.h"
 
+#include <sol/forward.hpp>
+
+enum class Knockback : uint8_t;
+enum class MsgBasic : uint16_t;
 class CMobSkill;
+
+namespace xi
+{
+
+enum class AttackType : uint8_t;
+
+} // namespace xi
 
 class CLuaMobSkill
 {
@@ -57,8 +66,8 @@ public:
     uint32 getPrimaryTargetID();
     void   setFinalAnimationSub(uint8 newAnimationSub);
     void   setAnimationTime(uint32 newAnimationTime);
-    auto   getAttackType() const -> ATTACK_TYPE;
-    void   setAttackType(ATTACK_TYPE attackType);
+    auto   getAttackType() const -> xi::AttackType;
+    void   setAttackType(xi::AttackType attackType);
     auto   isCritical() -> bool;
     void   setCritical(bool isCritical);
     auto   getKnockback() const -> Knockback;
@@ -70,5 +79,3 @@ public:
 
     static void Register();
 };
-
-#endif

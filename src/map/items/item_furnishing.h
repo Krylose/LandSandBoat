@@ -19,8 +19,7 @@
 ===========================================================================
 */
 
-#ifndef _CITEMFURNISHING_H
-#define _CITEMFURNISHING_H
+#pragma once
 
 #include "common/cbasetypes.h"
 
@@ -121,7 +120,6 @@ public:
     uint8 getRow();
     uint8 getLevel();
     uint8 getRotation();
-    uint8 getOrder(); // Gets Placement order with 0 being the most recently placed furniture
 
     void setInstalled(bool installed);
     void setStorage(uint8 storage);
@@ -136,7 +134,6 @@ public:
     void setRow(uint8 row);
     void setLevel(uint8 level);
     void setRotation(uint8 rotation);
-    void setOrder(uint8 order);
 
     void  setMannequinRace(uint8 race);
     uint8 getMannequinRace();
@@ -160,5 +157,3 @@ private:
     uint16                  height_{};
     FurnishingPlacement     placement_{ FurnishingPlacement::Floor };
 };
-
-#endif

@@ -20,18 +20,23 @@
 */
 
 #include "0x0fa_myroom_layout.h"
+#include "enums/item_state.h"
+#include "items/item_access.h"
 
 #include "entities/char_entity.h"
 #include "items/item_furnishing.h"
 #include "lua/luautils.h"
 #include "map/enums/furnishing_placement.h"
+#include "packets/c2s/validation.h"
 #include "packets/s2c/0x01c_item_max.h"
 #include "packets/s2c/0x01d_item_same.h"
 #include "packets/s2c/0x020_item_attr.h"
 #include "packets/s2c/0x0fa_myroom_operation.h"
+#include "zone.h"
 
 namespace
 {
+
 // MH1F: 20x24 grid with a 8x18 unusable rectangle (x 6..13, z 0..17)
 // MH2F: 20x26 grid, no exclusions.
 auto isValidFloorCell(const uint8 cx, const uint8 cz, const bool is2F) -> bool
@@ -117,29 +122,37 @@ auto anyInstalledFurnishing(CCharEntity* PChar, const uint8 selfCat, const uint8
 {
     for (const auto cat : { LOC_MOGSAFE, LOC_MOGSAFE2 })
     {
-        const auto* container = PChar->getStorage(cat);
-        for (int slot = 1; slot <= container->GetSize(); ++slot)
-        {
-            if (cat == selfCat && slot == selfSlot)
-            {
-                continue;
-            }
+        auto* PContainer = PChar->getStorage(cat);
 
-            if (auto* PFurn = dynamic_cast<CItemFurnishing*>(container->GetItem(slot)); PFurn && PFurn->isInstalled() && pred(PFurn))
+        const auto* PMatch = PContainer->FindItem(
+            [&](CItem* PItem)
             {
-                return true;
-            }
+                if (cat == selfCat && PItem->getSlotID() == selfSlot)
+                {
+                    return false;
+                }
+
+                auto* PFurn = dynamic_cast<CItemFurnishing*>(PItem);
+                return PFurn && PFurn->isInstalled() && pred(PFurn);
+            });
+
+        if (PMatch)
+        {
+            return true;
         }
     }
 
     return false;
 }
+
 } // namespace
 
 auto GP_CLI_COMMAND_MYROOM_LAYOUT::validate(MapSession* PSession, const CCharEntity* PChar) const -> PacketValidationResult
 {
     return PacketValidator(PChar)
         .blockedBy({ BlockedState::InEvent })
+        .isInMogHouse(xi::MogHouse::Own)
+        .mustEqual(PChar->moghouse().isOpen(), false, "Mog House is open to visitors")
         .range("MyroomFloorFlg", this->MyroomFloorFlg, 0, 1) // Flag indicating if 2nd floor
         .range("v", this->v, 0, 3)                           // Rotation of the item (0-3)
         .range("y", this->y, 0, 25);                         // Stacking elevation (parent height / 10)
@@ -299,55 +312,27 @@ void GP_CLI_COMMAND_MYROOM_LAYOUT::process(MapSession* PSession, CCharEntity* PC
     // Continue with regular usage
     if (PItem->getID() == this->MyroomItemNo && PItem->isType(ITEM_FURNISHING))
     {
+        // already PlacedFurniture, and mark() only moves between states
+        if (PItem->state() != ItemState::PlacedFurniture && !xi::items::mark(PItem, ItemState::PlacedFurniture))
+        {
+            ShowWarningFmt("GP_CLI_COMMAND_MYROOM_LAYOUT: could not mark furnishing {} for {}", PItem->getID(), PChar->getName());
+            return;
+        }
+
         bool wasInstalled = PItem->isInstalled();
+
+        if (wasInstalled && PItem->getOn2ndFloor() != is2F)
+        {
+            ShowErrorFmt("Floor change on installed furnishing: {}", PChar->getName());
+            return;
+        }
+
         PItem->setInstalled(true);
         PItem->setOn2ndFloor(this->MyroomFloorFlg);
         PItem->setCol(this->x);
         PItem->setRow(this->z);
         PItem->setLevel(this->y);
         PItem->setRotation(this->v);
-
-        constexpr auto maxContainerSize = MAX_CONTAINER_SIZE * 2;
-
-        // Update installed furniture placement orders
-        // First we place the furniture into placed items using the order number as the index
-        std::array<CItemFurnishing*, maxContainerSize> placedItems = { nullptr };
-        for (auto safeMyroomCategory : { LOC_MOGSAFE, LOC_MOGSAFE2 })
-        {
-            CItemContainer* PContainer = PChar->getStorage(safeMyroomCategory);
-            for (int slotIndex = 1; slotIndex <= PContainer->GetSize(); ++slotIndex)
-            {
-                if (this->MyroomItemIndex == slotIndex && this->MyroomCategory == safeMyroomCategory)
-                {
-                    continue;
-                }
-
-                CItem* PContainerItem = PContainer->GetItem(slotIndex);
-                if (PContainerItem != nullptr && PContainerItem->isType(ITEM_FURNISHING))
-                {
-                    if (auto PFurniture = static_cast<CItemFurnishing*>(PContainerItem); PFurniture->isInstalled())
-                    {
-                        placedItems[PFurniture->getOrder()] = PFurniture;
-                    }
-                }
-            }
-        }
-
-        // Update the item's order number
-        for (int32 i = 0; i < MAX_CONTAINER_SIZE * 2; ++i)
-        {
-            // We can stop updating the order numbers once we hit an empty order number
-            if (placedItems[i] == nullptr)
-            {
-                break;
-            }
-            placedItems[i]->setOrder(placedItems[i]->getOrder() + 1);
-        }
-
-        // Set this item to being the most recently placed item
-        PItem->setOrder(0);
-
-        PItem->setSubType(ITEM_LOCKED);
 
         PChar->pushPacket<GP_SERV_COMMAND_MYROOM_OPERATION>(PItem, static_cast<CONTAINER_ID>(this->MyroomCategory), this->MyroomItemIndex);
 

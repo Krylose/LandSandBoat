@@ -19,14 +19,15 @@
 ===========================================================================
 */
 
-#ifndef _LUASTATUSEFFECT_H
-#define _LUASTATUSEFFECT_H
+#pragma once
 
 #include "common/cbasetypes.h"
-#include "luautils.h"
 #include "status_effect.h"
 
+#include <sol/forward.hpp>
+
 class CStatusEffect;
+
 class CLuaStatusEffect
 {
     CStatusEffect* m_PLuaStatusEffect;
@@ -87,5 +88,3 @@ public:
 
     static void Register();
 };
-
-#endif

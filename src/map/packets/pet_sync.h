@@ -19,10 +19,7 @@
 ===========================================================================
 */
 
-#ifndef _CPETSYNCPACKET_H
-#define _CPETSYNCPACKET_H
-
-#include "common/cbasetypes.h"
+#pragma once
 
 #include "basic.h"
 
@@ -33,5 +30,3 @@ class CPetSyncPacket : public CBasicPacket
 public:
     CPetSyncPacket(CCharEntity* PChar);
 };
-
-#endif

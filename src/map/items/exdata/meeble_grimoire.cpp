@@ -21,13 +21,16 @@
 
 #include "meeble_grimoire.h"
 
+#include "base.h"
 #include "common/lua.h"
 
 namespace
 {
+
 constexpr uint8_t NUM_TYPES      = 5;
 constexpr uint8_t NUM_LEVELS     = 4;
 constexpr uint8_t BITS_PER_LEVEL = 3;
+
 } // namespace
 
 void Exdata::MeebleGrimoire::toTable(sol::table& table) const

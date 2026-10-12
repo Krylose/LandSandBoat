@@ -22,6 +22,7 @@
 #pragma once
 
 #include "common/cbasetypes.h"
+
 #include "common/database.h"
 #include "common/logging.h"
 #include "common/mmo.h"
@@ -29,6 +30,9 @@
 #include "common/synchronized.h"
 #include "common/timer.h"
 #include "common/xirand.h"
+#include <fmt/ranges.h>
+
+#include <common/types/hash_map.h>
 
 // Ahead of <math.h> (not <cmath>)
 #ifndef _USE_MATH_DEFINES
@@ -112,10 +116,7 @@ constexpr auto roundUpToNearestFour(uint32 input) -> uint32
     return input + 4U - remainder;
 }
 
-int32      intpow32(int32 base, int32 exponent); // Exponential power of integers
-void       getMSB(uint32* result, uint32 value); // fast Most Significant Byte search under GCC or MSVC. Fallback included.
-float      rotationToRadian(uint8 rotation);
-uint8      radianToRotation(float radian);
+int32      intpow32(int32 base, int32 exponent);                                              // Exponential power of integers
 uint8      worldAngle(const position_t& A, const position_t& B);                              // А - the main entity, B - target entity (vector projection onto the X-axis)
 uint8      relativeAngle(uint8 world, int16 diff);                                            // Returns a new world angle which is diff degrees in a given (signed) direction
 int16      angleDifference(uint8 worldAngleA, uint8 worldAngleB);                             // Returns difference between two world angles (0~128), sign indicates direction
@@ -127,6 +128,11 @@ bool       beside(const position_t& A, const position_t& B, uint8 coneAngle);   
 auto       toEntitysLeft(const position_t& A, const position_t& B, uint8 coneAngle) -> bool;  // true if A is to the left side of B within coneAngle degrees (from perspective of B)
 auto       toEntitysRight(const position_t& A, const position_t& B, uint8 coneAngle) -> bool; // true if A is to the right side of B within coneAngle degrees (from perspective of B)
 position_t nearPosition(const position_t& A, float offset, float radian);                     // Returns a position near the given position
+
+auto sidestepPosition(const position_t& from, const position_t& referencePoint, float offset) -> position_t;
+
+// True when two positions are within ~1 yalm, i.e. effectively co-located.
+auto isNear(const position_t& a, const position_t& b) -> bool;
 
 int32 hasBit(uint16 value, const uint8* BitArray, uint32 size); // Check for the presence of a bit in the array
 int32 addBit(uint16 value, uint8* BitArray, uint32 size);       // Adds a bit to the array
@@ -159,7 +165,6 @@ auto to_upper(const std::string& s) -> std::string;
 auto trim(const std::string& str, const std::string& whitespace = " \t") -> std::string;
 void rtrim(std::string& s);
 bool matches(const std::string& target, const std::string& pattern);
-bool starts_with(const std::string& target, const std::string& pattern);
 auto replace(const std::string& target, const std::string& search, const std::string& replace) -> std::string;
 
 look_t stringToLook(std::string str);
@@ -172,6 +177,7 @@ bool definitelyGreaterThan(float a, float b);
 bool definitelyLessThan(float a, float b);
 
 void crash();
+void hang();
 
 template <typename T>
 std::set<std::filesystem::path> sorted_directory_iterator(std::string path_name)
@@ -213,14 +219,14 @@ auto getRandomSampleString(T min, T max) -> std::string
 } // namespace utils
 
 // clang-format off
-static Synchronized<std::unordered_map<std::string, timer::time_point>> lastExecutionTimes;
+static Synchronized<HashMap<std::string, timer::time_point>> lastExecutionTimes;
 #define RATE_LIMIT(duration, code)                                                    \
 {                                                                                     \
     const auto currentTime = timer::now();                                            \
     const auto key         = std::string(__FILE__) + ":" + std::to_string(__LINE__);  \
     lastExecutionTimes.write([&](auto& lastExecutionTimes)                            \
     {                                                                                 \
-        if (lastExecutionTimes.find(key) == lastExecutionTimes.end() ||               \
+        if (!lastExecutionTimes.contains(key) ||                                      \
             currentTime - lastExecutionTimes[key] > std::chrono::seconds(duration))   \
         {                                                                             \
             lastExecutionTimes[key] = currentTime;                                    \

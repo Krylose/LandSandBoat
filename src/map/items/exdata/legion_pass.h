@@ -21,11 +21,14 @@
 
 #pragma once
 
-#include "base.h"
+#include <cstdint>
+#include <sol/forward.hpp>
 
 namespace Exdata
 {
+
 #pragma pack(push, 1)
+
 struct LegionPass
 {
     uint32_t Timestamp;
@@ -36,5 +39,7 @@ struct LegionPass
     void toTable(sol::table& table) const;
     void fromTable(const sol::table& data);
 };
+
 #pragma pack(pop)
+
 } // namespace Exdata

@@ -19,13 +19,9 @@
 ===========================================================================
 */
 
-#ifndef _CLINKSHELL_H
-#define _CLINKSHELL_H
+#pragma once
 
 #include "common/cbasetypes.h"
-#include "common/mmo.h"
-
-#include <vector>
 
 enum class GP_CLI_COMMAND_SET_LSMSG_WRITELEVEL : uint8_t;
 class CBasicPacket;
@@ -87,5 +83,3 @@ uint32      RegisterNewLinkshell(const std::string& name, uint16 color);
 CLinkshell* GetLinkshell(uint32 id);
 
 }; // namespace linkshell
-
-#endif
